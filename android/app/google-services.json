@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1042191855569",
+    "project_id": "zwacop-20",
+    "storage_bucket": "zwacop-20.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1042191855569:android:781a5db99ee922c6463af0",
+        "android_client_info": {
+          "package_name": "com.app.mt"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA7kki23zbRNIh7wi9TB4uRZajcudvC1uA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

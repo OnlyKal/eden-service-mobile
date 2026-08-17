@@ -124,6 +124,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Future<void> _openNotification(AppNotification notification) async {
     await _markAsRead(notification);
     await NotificationNavigationService.instance.handlePayload({
+      if (notification.statutId != null) 'statut_id': notification.statutId,
       if (notification.conversationId != null)
         'conversation_id': notification.conversationId,
       if (notification.demandeId != null) 'demande_id': notification.demandeId,

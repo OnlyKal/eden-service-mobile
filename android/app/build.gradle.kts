@@ -42,8 +42,8 @@ android {
         applicationId = "com.app.mt"
         minSdk = 24
         targetSdk = 35
-        versionCode = 403
-        versionName = "403.0.0"
+        versionCode = 405
+        versionName = "405"
     }
 
     signingConfigs {

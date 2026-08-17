@@ -36,6 +36,9 @@ class StatutUploadService {
   /// Message d'erreur en cas d'échec.
   final ValueNotifier<String?> error = ValueNotifier<String?>(null);
 
+  /// Dernier statut créé avec succès (pour mise à jour immédiate de l'UI).
+  StatutPrestataire? lastCreatedStatut;
+
   /// Légende associée à la publication en cours.
   String? _legende;
 
@@ -85,6 +88,7 @@ class StatutUploadService {
       if (_cancelled) return;
 
       // 3. Succès → notifier les écrans.
+      lastCreatedStatut = statut;
       status.value = StatutUploadStatus.done;
       progress.value = 1.0;
       StatutPrestataireService.instance.notifyChanged();
@@ -103,6 +107,27 @@ class StatutUploadService {
     if (file == null) return null;
 
     if (_typeMedia == 'video') {
+      // Sur iOS, la galerie retourne souvent des vidéos .mov (QuickTime).
+      // On les convertit en MP4 pour garantir la compatibilité serveur.
+      final isMov = _isMovFile(file.name) || _isMovFile(file.path);
+      if (isMov) {
+        try {
+          final compressed = await VideoCompress.compressVideo(
+            file.path,
+            quality: VideoQuality.MediumQuality,
+            deleteOrigin: false,
+            includeAudio: true,
+          );
+          final path = compressed?.path;
+          if (path != null && path.isNotEmpty) {
+            return XFileLike(path: path, name: 'statut.mp4');
+          }
+        } catch (e) {
+          debugPrint('[StatutUpload] mov→mp4 conversion error: $e');
+          // On envoie l'original si la conversion échoue.
+        }
+      }
+
       // Compression rapide en LowQuality (suffisant pour un statut 24h).
       // On ne compresse que si le fichier dépasse 8 Mo pour éviter
       // les traitements inutiles sur les petites vidéos.
@@ -126,6 +151,11 @@ class StatutUploadService {
       }
     }
     return file;
+  }
+
+  bool _isMovFile(String name) {
+    final lower = name.toLowerCase();
+    return lower.endsWith('.mov') || lower.endsWith('.quicktime');
   }
 
   Future<int> _fileSize(String path) async {
@@ -159,9 +189,18 @@ class StatutUploadService {
         ? 'video/mp4'
         : lookupMimeType(uploadFilename) ?? 'image/jpeg';
 
-    final filePart = await http.MultipartFile.fromPath(
+    // IMPORTANT (iOS) : on lit le fichier en bytes AVANT de créer la requête.
+    // Sur iOS, les chemins temporaires de image_picker peuvent être nettoyés
+    // par le système entre la sélection et l'upload. Lire les bytes
+    // immédiatement garantit que le fichier est disponible.
+    final bytes = await _readFileBytes(file.path);
+    if (bytes == null) {
+      throw Exception('Impossible de lire le fichier sélectionné.');
+    }
+
+    final filePart = http.MultipartFile.fromBytes(
       'media',
-      file.path,
+      bytes,
       filename: uploadFilename,
       contentType: MediaType.parse(mime),
     );
@@ -182,6 +221,24 @@ class StatutUploadService {
     return statut;
   }
 
+  /// Lit le fichier en bytes de manière robuste (iOS/Android/web).
+  Future<Uint8List?> _readFileBytes(String path) async {
+    try {
+      if (kIsWeb) {
+        // Sur web, le path est une URL blob/data.
+        final response = await http.get(Uri.parse(path));
+        if (response.statusCode == 200) return response.bodyBytes;
+        return null;
+      }
+      final file = File(path);
+      if (!await file.exists()) return null;
+      return await file.readAsBytes();
+    } catch (e) {
+      debugPrint('[StatutUpload] read file bytes error: $e');
+      return null;
+    }
+  }
+
   /// Nouvelle tentative après échec.
   Future<void> retry() async {
     final file = _pendingFile;
@@ -196,6 +253,7 @@ class StatutUploadService {
   void cancel() {
     _cancelled = true;
     _pendingFile = null;
+    lastCreatedStatut = null;
     status.value = StatutUploadStatus.idle;
     progress.value = 0;
     error.value = null;
@@ -221,6 +279,9 @@ class StatutUploadService {
     if (raw.contains('DAILY_LIMIT_REACHED')) {
       return 'Vous avez déjà publié votre statut du jour. Revenez demain !';
     }
+    if (raw.contains('Impossible de lire le fichier')) {
+      return 'Impossible de lire le fichier. Réessayez avec un autre média.';
+    }
     return raw.isEmpty ? 'Une erreur est survenue.' : raw;
   }
 
@@ -228,8 +289,18 @@ class StatutUploadService {
     final trimmed = filename.trim();
     final fallback = typeMedia == 'video' ? 'statut.mp4' : 'statut.jpg';
     if (trimmed.isEmpty) return fallback;
+
+    // Si c'est une vidéo .mov (iOS), on renomme en .mp4.
+    if (typeMedia == 'video' && _isMovFile(trimmed)) {
+      return 'statut.mp4';
+    }
+
     if (typeMedia == 'video' && !trimmed.toLowerCase().endsWith('.mp4')) {
-      return '${trimmed.substring(0, trimmed.lastIndexOf('.'))}.mp4';
+      final dotIndex = trimmed.lastIndexOf('.');
+      if (dotIndex > 0) {
+        return '${trimmed.substring(0, dotIndex)}.mp4';
+      }
+      return 'statut.mp4';
     }
     if (trimmed.contains('.')) return trimmed;
     return '$trimmed${typeMedia == 'video' ? '.mp4' : '.jpg'}';

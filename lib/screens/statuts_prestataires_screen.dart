@@ -13,7 +13,6 @@ import 'package:video_compress/video_compress.dart';
 import 'package:video_player/video_player.dart';
 
 import '../core/constants/api_constants.dart';
-import '../core/models/prestataire_models.dart';
 import '../core/models/statut_prestataire_models.dart';
 import '../core/services/app_refresh_service.dart';
 import '../core/services/auth_service.dart';
@@ -114,6 +113,10 @@ class _StatutsPrestatairesScreenState extends State<StatutsPrestatairesScreen> {
   final Set<int> _likeBusyIds = {};
   final Set<int> _watchedRealtimeStatutIds = {};
 
+  /// IDs des statuts supprimés localement (pour éviter qu'ils réapparaissent
+  /// lors d'un rechargement réseau avant que le serveur ne propage la suppression).
+  final Set<int> _deletedStatutIds = {};
+
   int get _maxMesStatuts => _maxActiveStatutsForLevel(_monNiveau);
   bool get _canPublishMine => _mesStatuts.length < _maxMesStatuts;
   StatutPrestataire? get _monStatutPreview =>
@@ -156,7 +159,25 @@ class _StatutsPrestatairesScreenState extends State<StatutsPrestatairesScreen> {
     final status = StatutUploadService.instance.status.value;
     if (status == StatutUploadStatus.done && !_uploadDoneHandled) {
       _uploadDoneHandled = true;
-      // Recharge automatiquement quand l'upload est terminé.
+      // Ajoute immédiatement le statut créé à la liste locale pour que
+      // l'utilisateur le voie sans attendre le rechargement réseau.
+      final created = StatutUploadService.instance.lastCreatedStatut;
+      if (created != null) {
+        setState(() {
+          final exists = _mesStatuts.any((s) => s.id == created.id);
+          if (!exists) {
+            _mesStatuts.insert(0, created);
+          }
+          final existsGlobal = _statuts.any((s) => s.id == created.id);
+          if (!existsGlobal) {
+            _statuts.insert(0, created);
+          }
+          _sortStatutsPriority(_statuts);
+        });
+        StatutRealtimeService.instance.registerStatuts(_statuts);
+        StatutUnreadService.instance.registerStatuts(_statuts);
+      }
+      // Recharge en arrière-plan pour synchroniser avec le serveur.
       _load(refresh: true);
       // Réinitialise après un court délai pour permettre les futurs uploads.
       Future.delayed(const Duration(seconds: 2), () {
@@ -243,9 +264,26 @@ class _StatutsPrestatairesScreenState extends State<StatutsPrestatairesScreen> {
         if (refresh) {
           _statuts
             ..clear()
-            ..addAll(response.results.where((s) => !s.isExpiredNow));
+            ..addAll(
+              response.results.where(
+                (s) => !s.isExpiredNow && !_deletedStatutIds.contains(s.id),
+              ),
+            );
+          // Préserve le statut localement créé si le serveur ne le retourne
+          // pas encore (latence de propagation après upload).
+          final created = StatutUploadService.instance.lastCreatedStatut;
+          if (created != null) {
+            final exists = _statuts.any((s) => s.id == created.id);
+            if (!exists) {
+              _statuts.insert(0, created);
+            }
+          }
         } else {
-          _statuts.addAll(response.results.where((s) => !s.isExpiredNow));
+          _statuts.addAll(
+            response.results.where(
+              (s) => !s.isExpiredNow && !_deletedStatutIds.contains(s.id),
+            ),
+          );
         }
         _sortStatutsPriority(_statuts);
         _page = response.currentPage;
@@ -319,7 +357,20 @@ class _StatutsPrestatairesScreenState extends State<StatutsPrestatairesScreen> {
       setState(() {
         _mesStatuts
           ..clear()
-          ..addAll(statuts.where((s) => !s.isExpiredNow));
+          ..addAll(
+            statuts.where(
+              (s) => !s.isExpiredNow && !_deletedStatutIds.contains(s.id),
+            ),
+          );
+        // Préserve le statut localement créé si le serveur ne le retourne
+        // pas encore (latence de propagation après upload).
+        final created = StatutUploadService.instance.lastCreatedStatut;
+        if (created != null) {
+          final exists = _mesStatuts.any((s) => s.id == created.id);
+          if (!exists) {
+            _mesStatuts.insert(0, created);
+          }
+        }
         _monNiveau = niveau;
         _loadingMonStatut = false;
         // Fusionner mes statuts dans la liste globale (sans doublon).
@@ -472,14 +523,19 @@ class _StatutsPrestatairesScreenState extends State<StatutsPrestatairesScreen> {
           final index = _mesStatuts.indexWhere((s) => s.id == statut.id);
           if (index >= 0) _openViewerMine(index);
         },
-        onDelete: (statut) async {
+        onDelete: (statut) {
           Navigator.pop(context);
-          await StatutPrestataireService.instance.supprimerStatut(statut.id);
-          if (!mounted) return;
+          // Suppression optimiste : retire immédiatement le statut de l'UI,
+          // puis synchronise avec le serveur en arrière-plan.
+          _deletedStatutIds.add(statut.id);
           setState(() {
             _mesStatuts.removeWhere((s) => s.id == statut.id);
             _statuts.removeWhere((s) => s.id == statut.id);
           });
+          StatutUnreadService.instance.registerStatuts(_statuts);
+          unawaited(
+            StatutPrestataireService.instance.supprimerStatut(statut.id),
+          );
         },
       ),
     );
@@ -1570,10 +1626,17 @@ class _MyStatusCircle extends StatefulWidget {
   State<_MyStatusCircle> createState() => _MyStatusCircleState();
 }
 
-class _MyStatusCircleState extends State<_MyStatusCircle> {
+class _MyStatusCircleState extends State<_MyStatusCircle>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _dotsCtrl;
+
   @override
   void initState() {
     super.initState();
+    _dotsCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
     StatutUploadService.instance.status.addListener(_onUploadChanged);
     StatutUploadService.instance.progress.addListener(_onUploadChanged);
     StatutUploadService.instance.error.addListener(_onUploadChanged);
@@ -1581,6 +1644,7 @@ class _MyStatusCircleState extends State<_MyStatusCircle> {
 
   @override
   void dispose() {
+    _dotsCtrl.dispose();
     StatutUploadService.instance.status.removeListener(_onUploadChanged);
     StatutUploadService.instance.progress.removeListener(_onUploadChanged);
     StatutUploadService.instance.error.removeListener(_onUploadChanged);
@@ -1684,7 +1748,7 @@ class _MyStatusCircleState extends State<_MyStatusCircle> {
         ? 'Mon statut'
         : 'Ajouter';
     final subText = isUploading
-        ? '${(uploadProgress * 100).round()}%'
+        ? null
         : uploadError != null
         ? 'Réessayer'
         : hasStatus
@@ -1698,9 +1762,10 @@ class _MyStatusCircleState extends State<_MyStatusCircle> {
       child: SizedBox(
         width: 82,
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             ring,
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               statusText,
               maxLines: 1,
@@ -1710,17 +1775,54 @@ class _MyStatusCircleState extends State<_MyStatusCircle> {
                 color: uploadError != null ? AppColors.error : AppColors.textPrimary,
                 fontSize: 11.5,
                 fontWeight: FontWeight.w800,
+                height: 1.2,
               ),
             ),
-            Text(
-              subText,
-              maxLines: 1,
-              style: TextStyle(
-                color: uploadError != null ? AppColors.error : AppColors.textHint,
-                fontSize: 10.5,
-                fontWeight: uploadError != null ? FontWeight.w700 : FontWeight.w400,
+            if (isUploading)
+              // Petite animation de points pulsants pendant l'upload.
+              AnimatedBuilder(
+                animation: _dotsCtrl,
+                builder: (_, __) {
+                  final t = _dotsCtrl.value;
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(3, (i) {
+                      final phase = ((t * 3 - i) % 1.0).clamp(0.0, 1.0);
+                      final opacity = 0.3 + 0.7 * (1 - phase);
+                      final scale = 0.6 + 0.4 * phase;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: Transform.scale(
+                          scale: scale,
+                          child: Opacity(
+                            opacity: opacity,
+                            child: Container(
+                              width: 5,
+                              height: 5,
+                              decoration: BoxDecoration(
+                                color: AppColors.primary,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  );
+                },
+              )
+            else
+              Text(
+                subText!,
+                maxLines: 1,
+                style: TextStyle(
+                  color: uploadError != null ? AppColors.error : AppColors.textHint,
+                  fontSize: 10.5,
+                  fontWeight: uploadError != null ? FontWeight.w700 : FontWeight.w400,
+                  height: 1.2,
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -3570,7 +3672,7 @@ class _Header extends StatelessWidget {
           SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Statuts',
+              'Statuts & Annonces',
               style: TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 20,
@@ -3900,25 +4002,26 @@ class _PublishStatutSheetState extends State<_PublishStatutSheet> {
   }
 
   Future<void> _pickMediaFromGallery() async {
-    final picked = await _picker.pickMedia(imageQuality: 82, maxWidth: 1600);
-    if (picked == null) return;
-    final mediaType = await _mediaTypeFor(picked);
-    if (mediaType == 'video') {
-      await _setVideo(picked);
-      return;
-    }
-    if (mediaType == 'photo') {
-      setState(() {
-        _file = picked;
-        _typeMedia = 'photo';
-        _dureeVideo = null;
-        _error = null;
-      });
-      return;
-    }
-    setState(
-      () => _error = 'Format non supporté. Choisissez une image ou une vidéo.',
+    // Sur iOS, pickMedia peut être instable. On utilise pickImage et
+    // pickVideo séparément pour une meilleure compatibilité.
+    final picked = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 82,
+      maxWidth: 1600,
     );
+    if (picked == null) {
+      // Pas d'image → on essaie une vidéo.
+      final video = await _picker.pickVideo(source: ImageSource.gallery);
+      if (video == null) return;
+      await _setVideo(video);
+      return;
+    }
+    setState(() {
+      _file = picked;
+      _typeMedia = 'photo';
+      _dureeVideo = null;
+      _error = null;
+    });
   }
 
   Future<void> _setVideo(XFile picked) async {
@@ -3964,11 +4067,16 @@ class _PublishStatutSheetState extends State<_PublishStatutSheet> {
         includeAudio: true,
       );
       final path = compressed?.path;
-      if (path == null || path.isEmpty) return null;
+      if (path == null || path.isEmpty) {
+        // La compression a échoué → on envoie l'original.
+        // Le service d'upload le convertira en MP4 si nécessaire.
+        return picked;
+      }
       return XFile(path, mimeType: 'video/mp4');
     } catch (e) {
       debugPrint('[Statuts] video mp4 preparation error: $e');
-      return null;
+      // On envoie l'original si la conversion échoue.
+      return picked;
     }
   }
 
@@ -3978,15 +4086,6 @@ class _PublishStatutSheetState extends State<_PublishStatutSheet> {
     final name = file.name.toLowerCase();
     final path = file.path.toLowerCase();
     return name.endsWith('.mp4') || path.endsWith('.mp4');
-  }
-
-  Future<String?> _mediaTypeFor(XFile file) async {
-    final mimeType =
-        file.mimeType ?? lookupMimeType(file.name) ?? lookupMimeType(file.path);
-    if (mimeType == null) return null;
-    if (mimeType.startsWith('image/')) return 'photo';
-    if (mimeType.startsWith('video/')) return 'video';
-    return null;
   }
 
   Future<Duration?> _readVideoDuration(XFile file) async {
@@ -4145,7 +4244,7 @@ class _PublishStatutSheetState extends State<_PublishStatutSheet> {
           if (_preparingVideo || _uploading) ...[
             SizedBox(height: 14),
             Text(
-              _preparingVideo ? 'Préparation de la vidéo...' : 'Publication...',
+              _preparingVideo ? 'Attente...' : 'En cours...',
               style: TextStyle(
                 color: AppColors.textSecondary,
                 fontSize: 12,
@@ -4175,7 +4274,7 @@ class _PublishStatutSheetState extends State<_PublishStatutSheet> {
               ),
               child: Center(
                 child: Text(
-                  _uploading ? 'Publication...' : 'Publier',
+                  _uploading ? 'En cours...' : 'Publier',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w800,

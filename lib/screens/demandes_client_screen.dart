@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/models/demande_service_models.dart';
 import '../core/models/prestataire_models.dart';
@@ -51,6 +52,9 @@ class _DemandesClientScreenState extends State<DemandesClientScreen> {
   final Set<int> _ratingPromptedDemandes = {};
   StreamSubscription<UserRealtimeEvent>? _userRealtimeSub;
 
+  static const _ratingPromptedKey = 'rating_prompted_demandes';
+  bool _ratingPrefsLoaded = false;
+
   @override
   void initState() {
     super.initState();
@@ -61,7 +65,37 @@ class _DemandesClientScreenState extends State<DemandesClientScreen> {
     _userRealtimeSub = UserRealtimeService.instance.events.listen(
       _handleUserRealtimeEvent,
     );
+    _loadRatingPromptedFromPrefs();
     _loadDemandes();
+  }
+
+  /// Charge les IDs des demandes déjà notées depuis SharedPreferences
+  /// pour ne jamais re-proposer la modale après un redémarrage.
+  Future<void> _loadRatingPromptedFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getStringList(_ratingPromptedKey) ?? const [];
+      _ratingPromptedDemandes
+        ..clear()
+        ..addAll(raw.map(int.tryParse).whereType<int>());
+    } catch (_) {
+      // En cas d'erreur, on garde le set vide.
+    } finally {
+      _ratingPrefsLoaded = true;
+    }
+  }
+
+  /// Persiste l'ID d'une demande déjà notée pour éviter la boucle infinie.
+  Future<void> _persistRatingPrompted(int demandeId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(
+        _ratingPromptedKey,
+        _ratingPromptedDemandes.map((id) => id.toString()).toList(),
+      );
+    } catch (_) {
+      // La persistance est best-effort.
+    }
   }
 
   @override
@@ -114,7 +148,15 @@ class _DemandesClientScreenState extends State<DemandesClientScreen> {
       );
     });
     if (previous.statut != 'terminee' && demandeEvent.statut == 'terminee') {
-      _showMandatoryRating(_demandes[index]);
+      // Attend que les prefs soient chargées pour éviter de re-proposer
+      // une modale déjà affichée pour cette demande.
+      if (_ratingPrefsLoaded) {
+        _showMandatoryRating(_demandes[index]);
+      } else {
+        unawaited(_loadRatingPromptedFromPrefs().then((_) {
+          if (mounted) _showMandatoryRating(_demandes[index]);
+        }));
+      }
     }
   }
 
@@ -201,7 +243,7 @@ class _DemandesClientScreenState extends State<DemandesClientScreen> {
   }
 
   void _promptLatestUnratedCompleted() {
-    if (_ratingSheetOpen) return;
+    if (_ratingSheetOpen || !_ratingPrefsLoaded) return;
     for (final demande in _demandes) {
       if (demande.statut == 'terminee' &&
           demande.noteClient == null &&
@@ -218,6 +260,7 @@ class _DemandesClientScreenState extends State<DemandesClientScreen> {
     }
     _ratingSheetOpen = true;
     _ratingPromptedDemandes.add(demande.id);
+    unawaited(_persistRatingPrompted(demande.id));
     await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -227,7 +270,9 @@ class _DemandesClientScreenState extends State<DemandesClientScreen> {
       builder: (_) => _MandatoryRatingSheet(demande: demande),
     );
     _ratingSheetOpen = false;
-    if (mounted) _loadDemandes(page: 1, silent: true);
+    // Ne recharge PAS ici : le rechargement re-déclencherait la modale
+    // si le serveur ne retourne pas encore noteClient. L'ID est déjà
+    // persisté, donc la modale ne sera plus proposée pour cette demande.
   }
 
   Future<void> _openDemandeSheet({

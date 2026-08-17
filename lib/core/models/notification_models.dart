@@ -19,6 +19,7 @@ class AppNotification {
     this.type,
     this.demandeId,
     this.conversationId,
+    this.statutId,
     this.dateCreation,
   });
 
@@ -28,11 +29,13 @@ class AppNotification {
   final String? type;
   final int? demandeId;
   final int? conversationId;
+  final int? statutId;
   final DateTime? dateCreation;
 
   factory AppNotification.fromJson(Map<String, dynamic> json) {
     final conversationRaw = json['conversation'];
     final demandeRaw = json['demande'];
+    final statutRaw = json['statut'];
     return AppNotification(
       id: json['id'] as int? ?? 0,
       message: json['message'] as String? ?? json['contenu'] as String? ?? '',
@@ -62,6 +65,13 @@ class AppNotification {
           (conversationRaw is Map<String, dynamic>
               ? _parseIntOrNull(conversationRaw['id'])
               : null),
+      statutId:
+          _parseIntOrNull(
+            json['statut_id'] ?? json['statutId'] ?? json['statut'],
+          ) ??
+          (statutRaw is Map<String, dynamic>
+              ? _parseIntOrNull(statutRaw['id'])
+              : null),
       dateCreation: DateTime.tryParse(json['date_creation'] as String? ?? ''),
     );
   }
@@ -74,6 +84,7 @@ class AppNotification {
       type: type,
       demandeId: demandeId,
       conversationId: conversationId,
+      statutId: statutId,
       dateCreation: dateCreation,
     );
   }

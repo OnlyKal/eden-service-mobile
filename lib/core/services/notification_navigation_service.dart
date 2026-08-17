@@ -7,11 +7,13 @@ import '../../screens/conversation_screen.dart';
 import '../../screens/demandes_client_screen.dart';
 import '../../screens/demandes_prestataire_screen.dart';
 import '../../screens/login_screen.dart';
+import '../../screens/statuts_prestataires_screen.dart';
 import '../models/demande_service_models.dart';
 import 'auth_service.dart';
 import 'conversation_unread_service.dart';
 import 'demande_service_service.dart';
 import 'notification_service.dart';
+import 'statut_prestataire_service.dart';
 
 class NotificationNavigationService {
   NotificationNavigationService._();
@@ -72,6 +74,13 @@ class NotificationNavigationService {
       unawaited(NotificationService.instance.markAsRead(notificationId));
     }
 
+    // Statut (like, commentaire, nouveau statut, etc.)
+    final statutId = _parseInt(payload['statut_id'] ?? payload['statutId']);
+    if (statutId != null && statutId > 0) {
+      await _openStatut(statutId);
+      return;
+    }
+
     final conversationId = _parseInt(
       payload['conversation_id'] ?? payload['conversationId'],
     );
@@ -90,6 +99,32 @@ class NotificationNavigationService {
         return;
       }
       await _openDemandes();
+    }
+  }
+
+  /// Ouvre directement le statut concerné (like, commentaire, nouveau statut).
+  Future<void> _openStatut(int statutId) async {
+    final navigator = navigatorKey.currentState;
+    if (navigator == null) return;
+    try {
+      final statut = await StatutPrestataireService.instance.getStatut(
+        statutId,
+      );
+      if (statut.id <= 0) return;
+      await navigator.push(
+        MaterialPageRoute(
+          builder: (_) => StatutViewerScreen(
+            statuts: [statut],
+            initialIndex: 0,
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[NotificationNavigation] open statut error: $e');
+      // Fallback : ouvre l'écran des statuts.
+      await navigator.push(
+        MaterialPageRoute(builder: (_) => StatutsPrestatairesScreen()),
+      );
     }
   }
 

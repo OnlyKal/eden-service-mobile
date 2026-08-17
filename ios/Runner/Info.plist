@@ -19,13 +19,19 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>403.0</string>
+	<string>405</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
-	<string>403</string>
+	<string>405</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Zwacop a besoin d'accéder à votre bibliothèque photo pour publier des statuts (photos et vidéos).</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Zwacop a besoin d'accéder à votre caméra pour prendre des photos et vidéos de statuts.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Zwacop a besoin d'accéder au microphone pour enregistrer des vidéos avec du son.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>

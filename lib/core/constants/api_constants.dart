@@ -98,6 +98,10 @@ class ApiConstants {
   static const String toutMarquerNotificationsLu =
       '$baseUrl/notifications/tout_marquer_lu/';
 
+  // ── Versions app ────────────────────────────────────────────────────────
+  static const String versionAppActuelle =
+      '$baseUrl/versions-app/actuelle/';
+
   // ── Statuts prestataires ───────────────────────────────────────────────
   static const String statutsPrestataires = '$baseUrl/statuts-prestataires/';
   static String statutPrestataireDetail(int id) =>

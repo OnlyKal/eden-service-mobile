@@ -58,6 +58,10 @@ dependencies:
   rxdart: ^0.28.0
   flutter_local_notifications: ^20.1.0
 
+  # Version checking & store links
+  package_info_plus: ^8.0.2
+  url_launcher: ^6.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

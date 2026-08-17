@@ -13,8 +13,10 @@ import 'package:rxdart/rxdart.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/notification_badge_service.dart';
 import 'core/services/notification_navigation_service.dart';
+import 'core/services/version_check_service.dart';
 import 'theme/app_theme.dart';
 import 'screens/home_screen.dart';
+import 'widgets/update_dialog.dart';
 
 // TODO: Add stream controller
 // Used to pass messages from event handlers to the UI.
@@ -183,6 +185,7 @@ void main() async {
   }
 
   await AuthService.instance.loadSession();
+  await VersionCheckService.instance.loadInstalledVersion();
   SystemChrome.setSystemUIOverlayStyle(
     SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -241,7 +244,7 @@ class _ZwacopAppState extends State<ZwacopApp> {
       locale: Locale('fr', 'FR'),
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      home: HomeScreen(),
+      home: VersionCheckGate(child: HomeScreen()),
     );
   }
 }

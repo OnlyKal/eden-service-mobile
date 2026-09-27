@@ -1,11 +1,16 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../core/constants/api_constants.dart';
 import '../core/models/prestataire_models.dart';
 import '../core/services/auth_service.dart';
 import '../core/services/prestataire_service.dart';
+import '../core/services/version_check_service.dart';
+import '../core/services/whatsapp_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/expandable_text.dart';
 import '../widgets/gradient_background.dart';
+import '../widgets/whatsapp_icon.dart';
 import 'demandes_client_screen.dart';
 import 'login_screen.dart';
 
@@ -76,6 +81,41 @@ class _PrestataireDetailScreenState extends State<PrestataireDetailScreen> {
     }
   }
 
+  /// Copie le numéro du prestataire dans le presse-papiers.
+  Future<void> _copyPhone(String phone) async {
+    await Clipboard.setData(ClipboardData(text: phone));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Numéro copié',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: AppColors.textPrimary,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          duration: const Duration(seconds: 2),
+          margin: const EdgeInsets.all(20),
+        ),
+      );
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = widget.prestataire;
@@ -107,18 +147,22 @@ class _PrestataireDetailScreenState extends State<PrestataireDetailScreen> {
                         _SectionTitle('À propos'),
                         SizedBox(height: 10),
                         _GlassBlock(
-                          child: Text(
-                            p.presentation,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: AppColors.textSecondary,
-                              height: 1.6,
-                            ),
-                          ),
+                          child: ExpandableText(text: p.presentation),
                         ),
                       ],
                       SizedBox(height: 16),
-                      _RequestServiceButton(prestataire: p),
+                      Row(
+                        children: [
+                          // Masqué si le prestataire n'a pas de numéro exploitable.
+                          if (WhatsappService.isValidPhone(user.telephone)) ...[
+                            _WhatsappButton(prestataire: p),
+                            SizedBox(width: 12),
+                          ],
+                          Expanded(
+                            child: _RequestServiceButton(prestataire: p),
+                          ),
+                        ],
+                      ),
                       SizedBox(height: 10),
                       _RateButton(prestataireId: p.id, onRated: _loadRatings),
                       SizedBox(height: 20),
@@ -140,28 +184,28 @@ class _PrestataireDetailScreenState extends State<PrestataireDetailScreen> {
                               label: 'Localisation',
                               value: '${p.commune}, ${p.ville}',
                             ),
-                            _Divider(),
-                            _InfoRow(
-                              icon: Icons.verified_outlined,
-                              label: 'Statut',
-                              value: p.estValide
-                                  ? 'Validé'
-                                  : 'En attente de validation',
-                              valueColor: p.estValide
-                                  ? AppColors.primary
-                                  : AppColors.warning,
-                            ),
-                            _Divider(),
-                            _InfoRow(
-                              icon: Icons.event_available_outlined,
-                              label: 'Disponibilité',
-                              value: p.isAvailable
-                                  ? 'Disponible'
-                                  : 'Indisponible',
-                              valueColor: p.isAvailable
-                                  ? AppColors.success
-                                  : AppColors.warning,
-                            ),
+                            // _Divider(),
+                            // _InfoRow(
+                            //   icon: Icons.verified_outlined,
+                            //   label: 'Statut',
+                            //   value: p.estValide
+                            //       ? 'Validé'
+                            //       : 'En attente de validation',
+                            //   valueColor: p.estValide
+                            //       ? AppColors.primary
+                            //       : AppColors.warning,
+                            // ),
+                            // _Divider(),
+                            // _InfoRow(
+                            //   icon: Icons.event_available_outlined,
+                            //   label: 'Disponibilité',
+                            //   value: p.isAvailable
+                            //       ? 'Disponible'
+                            //       : 'Indisponible',
+                            //   valueColor: p.isAvailable
+                            //       ? AppColors.success
+                            //       : AppColors.warning,
+                            // ),
                             if (user.telephone != null &&
                                 user.telephone!.isNotEmpty) ...[
                               _Divider(),
@@ -169,6 +213,7 @@ class _PrestataireDetailScreenState extends State<PrestataireDetailScreen> {
                                 icon: Icons.phone_outlined,
                                 label: 'Téléphone',
                                 value: user.telephone!,
+                                onTap: () => _copyPhone(user.telephone!),
                               ),
                             ],
                             if (user.email.isNotEmpty) ...[
@@ -1244,24 +1289,24 @@ class _PerformanceBlock extends StatelessWidget {
             label: 'Missions réussies',
             value: '$missionsReussies',
           ),
-          _Divider(),
-          _InfoRow(
-            icon: Icons.reply_all_rounded,
-            label: 'Taux de réponse',
-            value: '$tauxReponse%',
-          ),
-          _Divider(),
-          _InfoRow(
-            icon: Icons.sentiment_satisfied_alt_rounded,
-            label: 'Satisfaction',
-            value: '$tauxSatisfaction%',
-          ),
-          _Divider(),
-          _InfoRow(
-            icon: Icons.handshake_rounded,
-            label: 'Respect engagements',
-            value: '$tauxRespectEngagements%',
-          ),
+          // _Divider(),
+          // _InfoRow(
+          //   icon: Icons.reply_all_rounded,
+          //   label: 'Taux de réponse',
+          //   value: '$tauxReponse%',
+          // ),
+          // _Divider(),
+          // _InfoRow(
+          //   icon: Icons.sentiment_satisfied_alt_rounded,
+          //   label: 'Satisfaction',
+          //   value: '$tauxSatisfaction%',
+          // ),
+          // _Divider(),
+          // _InfoRow(
+          //   icon: Icons.handshake_rounded,
+          //   label: 'Respect engagements',
+          //   value: '$tauxRespectEngagements%',
+          // ),
           if (dateDernierCalculNiveau != null &&
               dateDernierCalculNiveau!.isNotEmpty) ...[
             _Divider(),
@@ -1342,15 +1387,17 @@ class _InfoRow extends StatelessWidget {
     required this.label,
     required this.value,
     this.valueColor,
+    this.onTap,
   });
   final IconData icon;
   final String label;
   final String value;
   final Color? valueColor;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final row = Padding(
       padding: EdgeInsets.symmetric(vertical: 11),
       child: Row(
         children: [
@@ -1388,8 +1435,18 @@ class _InfoRow extends StatelessWidget {
               ],
             ),
           ),
+          // Indique que la ligne est cliquable.
+          if (onTap != null)
+            Icon(Icons.copy_rounded, color: AppColors.textHint, size: 15),
         ],
       ),
+    );
+
+    if (onTap == null) return row;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: row,
     );
   }
 }
@@ -1399,6 +1456,131 @@ class _Divider extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       Divider(color: AppColors.divider, height: 1);
+}
+
+class _WhatsappButton extends StatelessWidget {
+  _WhatsappButton({required this.prestataire});
+  final Prestataire prestataire;
+
+  /// Nom affiché au prestataire : nom complet, sinon pseudo.
+  String get _clientName {
+    final user = AuthService.instance.currentUser;
+    if (user == null) return '';
+    final full = '${user.firstName} ${user.lastName}'.trim();
+    return full.isNotEmpty ? full : user.username;
+  }
+
+  Future<void> _open(BuildContext context) async {
+    // Le message est personnalisé avec le nom du client : on demande
+    // d'être connecté, comme pour toute action de l'application.
+    if (!AuthService.instance.isLoggedIn) {
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => LoginScreen()));
+      return;
+    }
+
+    final result = await WhatsappService.instance.openConversation(
+      rawPhone: prestataire.utilisateur.telephone,
+      clientName: _clientName,
+    );
+    if (result == WhatsappLaunchResult.opened) return;
+    if (!context.mounted) return;
+
+    // Ni WhatsApp ni le navigateur n'ont pu être ouverts.
+    await _showUnavailableDialog(context);
+  }
+
+  /// Message affiché quand ni WhatsApp ni le navigateur n'ont pu être ouverts.
+  Future<void> _showUnavailableDialog(BuildContext context) {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            WhatsappIcon(size: 24, color: AppColors.whatsapp),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'WhatsApp indisponible',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 17,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          "WhatsApp n'a pas pu être ouvert sur cet appareil. Installez "
+          "l'application pour continuer la discussion avec le prestataire.",
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 14,
+            height: 1.5,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              VersionCheckService.instance.openStore();
+            },
+            child: Text(
+              'Installer',
+              style: TextStyle(color: AppColors.primary),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text('Annuler', style: TextStyle(color: AppColors.textHint)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        gradient: AppColors.whatsappGradient,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.35),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.whatsapp.withValues(alpha: 0.36),
+            blurRadius: 20,
+            offset: Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: Tooltip(
+          message: 'WhatsApp',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: () => _open(context),
+            child: Center(
+              child: Semantics(
+                button: true,
+                label: 'Contacter par WhatsApp',
+                child: WhatsappIcon(size: 26),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _RequestServiceButton extends StatelessWidget {

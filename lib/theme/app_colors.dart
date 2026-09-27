@@ -31,6 +31,12 @@ class AppColors {
   static const Color error = Color(0xFFE53935);
   static const Color info = Color(0xFF00A88A);
 
+  // ── WhatsApp (marque) ───────────────────────────────────────────────────
+  /// Vert officiel WhatsApp, proche du vert Zwacop pour rester cohérent
+  /// avec la palette de l'application.
+  static const Color whatsapp = Color(0xFF25D366);
+  static const Color whatsappDark = Color(0xFF1EAE5B);
+
   // ── Glass layer ─────────────────────────────────────────────────────────
   static const Color glassWhite = Color(0xCCFFFFFF);
   static const Color glassGreen = Color(0x2234C17A);
@@ -55,6 +61,12 @@ class AppColors {
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
     colors: [Color(0xFF6EDDA3), Color(0xFF34C17A)],
+  );
+
+  static const LinearGradient whatsappGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF25D366), Color(0xFF1EAE5B)],
   );
 
   static const LinearGradient cardGradient = LinearGradient(

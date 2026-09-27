@@ -11,6 +11,7 @@ import '../core/services/prestataire_service.dart';
 import '../core/services/user_realtime_service.dart';
 import '../core/utils/user_friendly_error.dart';
 import '../core/constants/api_constants.dart';
+import '../core/constants/locations.dart';
 import '../theme/app_colors.dart';
 import '../widgets/gradient_background.dart';
 
@@ -1455,33 +1456,6 @@ class _ChangePasswordSheetBodyState extends State<_ChangePasswordSheetBody> {
 
 // ── Edit prestataire sheet ────────────────────────────────────────────────────
 
-List<String> _kCommunes = [
-  'Bandalungwa',
-  'Barumbu',
-  'Bumbu',
-  'Gombe',
-  'Kalamu',
-  'Kasa-Vubu',
-  'Kimbaseke',
-  'Kinshasa',
-  'Kintambo',
-  'Kisenso',
-  'Lemba',
-  'Limete',
-  'Lingwala',
-  'Makala',
-  'Maluku',
-  'Masina',
-  'Matete',
-  'Mont-Ngafula',
-  'Ndjili',
-  'Ngaba',
-  'Ngaliema',
-  'Ngiri-Ngiri',
-  'N\'Sele',
-  'Selembao',
-];
-
 class _EditPrestataireSheetBody extends StatefulWidget {
   _EditPrestataireSheetBody({required this.profil, required this.onUpdated});
   final MonProfilPrestataire? profil;
@@ -1513,9 +1487,10 @@ class _EditPrestataireSheetBodyState extends State<_EditPrestataireSheetBody> {
   bool _showServiceList = false;
 
   // ── commune dropdown ─────────────────────────────────────────────────────
+  String? _selectedVille;
   String? _selectedCommune;
   bool _showCommuneList = false;
-  List<String> _filteredCommunes = _kCommunes;
+  List<String> _filteredCommunes = Locations.communesDe('Kinshasa');
 
   @override
   void initState() {
@@ -1529,7 +1504,12 @@ class _EditPrestataireSheetBodyState extends State<_EditPrestataireSheetBody> {
     _codePostalCtrl = TextEditingController(text: p?.codePostal ?? '');
     _communeSearchCtrl = TextEditingController(text: p?.commune ?? '');
     _serviceSearchCtrl = TextEditingController();
+    // Ville d'origine conservée telle quelle (données existantes), mais
+    // présentée sous son nom de référence quand elle est connue.
+    _selectedVille = Locations.villeValide(p?.ville);
+    _villeCtrl.text = _selectedVille ?? '';
     _selectedCommune = (p?.commune.isNotEmpty == true) ? p!.commune : null;
+    _filteredCommunes = Locations.communesDe(_selectedVille);
     _selectedTypeService = (p?.typeService.isNotEmpty == true)
         ? p!.typeService
         : null;
@@ -1604,7 +1584,7 @@ class _EditPrestataireSheetBodyState extends State<_EditPrestataireSheetBody> {
   void _filterCommunes(String q) {
     final lower = q.toLowerCase();
     setState(() {
-      _filteredCommunes = _kCommunes
+      _filteredCommunes = Locations.communesDe(_villeCtrl.text.trim())
           .where((c) => c.toLowerCase().contains(lower))
           .toList();
     });
@@ -1626,7 +1606,9 @@ class _EditPrestataireSheetBodyState extends State<_EditPrestataireSheetBody> {
             ? null
             : _adresseRueCtrl.text.trim(),
         commune: _selectedCommune,
-        ville: _villeCtrl.text.trim().isEmpty ? null : _villeCtrl.text.trim(),
+        ville: (_selectedVille == null || _selectedVille!.trim().isEmpty)
+            ? null
+            : _selectedVille!.trim(),
         codePostal: _codePostalCtrl.text.trim().isEmpty
             ? null
             : _codePostalCtrl.text.trim(),
@@ -2102,7 +2084,7 @@ class _EditPrestataireSheetBodyState extends State<_EditPrestataireSheetBody> {
                               _showCommuneList = !_showCommuneList;
                               if (_showCommuneList) {
                                 _communeSearchCtrl.clear();
-                                _filteredCommunes = _kCommunes;
+                                _filteredCommunes = Locations.communesDe(_villeCtrl.text.trim());
                               }
                             }),
                             child: Container(
@@ -2264,16 +2246,28 @@ class _EditPrestataireSheetBodyState extends State<_EditPrestataireSheetBody> {
                         ],
                       ),
                       SizedBox(height: 14),
+                      // ── Ville (liste déroulante) ──────────────────────
                       _SheetLabel('Ville'),
                       SizedBox(height: 8),
-                      _SheetField(
-                        controller: _villeCtrl,
-                        hint: 'Kinshasa',
-                        icon: Icons.location_on_outlined,
-                        obscure: false,
-                        textInputAction: TextInputAction.next,
-                        onToggleObscure: () {},
-                        showToggle: false,
+                      _ProviderInlineDropdown<String>(
+                        value: _selectedVille,
+                        placeholder: 'Sélectionner une ville',
+                        icon: Icons.location_city_outlined,
+                        options: Locations.nomsVilles,
+                        onChanged: (v) => setState(() {
+                          _selectedVille = v;
+                          _villeCtrl.text = v ?? '';
+                          // La commune dépend de la ville : on
+                          // réinitialise si elle n'y appartient plus.
+                          if (!Locations.communeAppartientA(
+                            commune: _selectedCommune,
+                            ville: v,
+                          )) {
+                            _selectedCommune = null;
+                            _communeSearchCtrl.clear();
+                          }
+                          _showCommuneList = false;
+                        }),
                       ),
                       SizedBox(height: 14),
                       _SheetLabel('Code postal (optionnel)'),
@@ -2297,6 +2291,255 @@ class _EditPrestataireSheetBodyState extends State<_EditPrestataireSheetBody> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Liste déroulante en ligne, alignée sur le style des champs du profil
+/// (même hauteur, mêmes rayons et mêmes couleurs que [_SheetField]).
+class _ProviderInlineDropdown<T> extends StatelessWidget {
+  _ProviderInlineDropdown({
+    required this.value,
+    required this.placeholder,
+    required this.icon,
+    required this.options,
+    required this.onChanged,
+    this.searchable = false,
+  });
+
+  final T? value;
+  final String placeholder;
+  final IconData icon;
+  final List<T> options;
+  final void Function(T?) onChanged;
+  final bool searchable;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () async {
+        final result = await showModalBottomSheet<T>(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => _InlineDropdownSheet<T>(
+            title: placeholder,
+            options: options,
+            selected: value,
+            searchable: searchable,
+          ),
+        );
+        onChanged(result);
+      },
+      child: Container(
+        height: 52,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.65),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.divider, width: 1.2),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: AppColors.primary, size: 19),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                value?.toString() ?? placeholder,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: value == null
+                      ? AppColors.textHint
+                      : AppColors.textPrimary,
+                ),
+              ),
+            ),
+            const Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: AppColors.textSecondary,
+              size: 20,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Feuille de sélection pour [_ProviderInlineDropdown], alignée sur le style
+/// des feuilles glass déjà utilisées dans l'application.
+class _InlineDropdownSheet<T> extends StatefulWidget {
+  _InlineDropdownSheet({
+    required this.title,
+    required this.options,
+    required this.selected,
+    this.searchable = false,
+  });
+
+  final String title;
+  final List<T> options;
+  final T? selected;
+  final bool searchable;
+
+  @override
+  State<_InlineDropdownSheet<T>> createState() =>
+      _InlineDropdownSheetState<T>();
+}
+
+class _InlineDropdownSheetState<T> extends State<_InlineDropdownSheet<T>> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  List<T> _filtered = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _filtered = widget.options;
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onSearch(String q) {
+    setState(() {
+      final query = q.trim().toLowerCase();
+      _filtered = query.isEmpty
+          ? widget.options
+          : widget.options
+                .where((o) => o.toString().toLowerCase().contains(query))
+                .toList();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.7,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.92),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border.all(color: AppColors.glassBorder, width: 1.3),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 12),
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.divider,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      widget.title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+                if (widget.searchable)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 6, 20, 8),
+                    child: Container(
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: AppColors.primarySurface,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.search_rounded,
+                            size: 18,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              controller: _searchCtrl,
+                              onChanged: _onSearch,
+                              style: const TextStyle(fontSize: 14),
+                              decoration: const InputDecoration(
+                                hintText: 'Rechercher…',
+                                border: InputBorder.none,
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.only(bottom: 24),
+                    children: _filtered.map((o) {
+                      final isSelected = o == widget.selected;
+                      return InkWell(
+                        onTap: () => Navigator.pop(context, o),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 14,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  o.toString(),
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    color: isSelected
+                                        ? AppColors.primary
+                                        : AppColors.textPrimary,
+                                  ),
+                                ),
+                              ),
+                              if (isSelected)
+                                const Icon(
+                                  Icons.check_rounded,
+                                  color: AppColors.primary,
+                                  size: 18,
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -6127,9 +6370,10 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
   bool _showServiceList = false;
 
   // ── commune dropdown ────────────────────────────────────────────────────
+  String? _selectedVille = 'Kinshasa';
   String? _selectedCommune;
   bool _showCommuneList = false;
-  List<String> _filteredCommunes = _kCommunes;
+  List<String> _filteredCommunes = Locations.communesDe('Kinshasa');
 
   bool _loading = false;
   String? _error;
@@ -6174,7 +6418,7 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
   void _filterCommunes(String q) {
     final lower = q.toLowerCase();
     setState(() {
-      _filteredCommunes = _kCommunes
+      _filteredCommunes = Locations.communesDe(_villeCtrl.text.trim())
           .where((c) => c.toLowerCase().contains(lower))
           .toList();
     });
@@ -6202,7 +6446,7 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
         serviceIds: _selectedServiceIds.where((id) => id > 0).toList(),
         adresseRue: _adresseRueCtrl.text.trim(),
         commune: _selectedCommune ?? '',
-        ville: _villeCtrl.text.trim(),
+        ville: _selectedVille?.trim() ?? '',
         presentation: _presentationCtrl.text.trim(),
       );
       if (!mounted) return;
@@ -6582,7 +6826,7 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
                             _showCommuneList = !_showCommuneList;
                             if (_showCommuneList) {
                               _communeSearchCtrl.clear();
-                              _filteredCommunes = _kCommunes;
+                              _filteredCommunes = Locations.communesDe(_villeCtrl.text.trim());
                             }
                           }),
                           child: Container(
@@ -6780,14 +7024,54 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
                   ),
                   SizedBox(height: 14),
 
-                  // ── Ville
-                  _ProviderFormField(
-                    controller: _villeCtrl,
-                    label: 'Ville',
-                    hint: 'ex : Kinshasa',
-                    icon: Icons.location_city_outlined,
+                  // ── Ville (liste déroulante) ───────────────────────────
+                  _SheetLabel('Ville'),
+                  SizedBox(height: 8),
+                  FormField<String>(
+                    initialValue: _selectedVille,
+                    validator: (_) => _selectedVille == null
+                        ? 'Veuillez sélectionner une ville'
+                        : null,
+                    builder: (field) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _ProviderInlineDropdown<String>(
+                          value: _selectedVille,
+                          placeholder: 'Sélectionner une ville',
+                          icon: Icons.location_city_outlined,
+                          options: Locations.nomsVilles,
+                          onChanged: (v) {
+                            FocusScope.of(context).unfocus();
+                            setState(() {
+                              _selectedVille = v;
+                              _villeCtrl.text = v ?? '';
+                              // La commune dépend de la ville.
+                              if (!Locations.communeAppartientA(
+                                commune: _selectedCommune,
+                                ville: v,
+                              )) {
+                                _selectedCommune = null;
+                                _communeSearchCtrl.clear();
+                              }
+                              _showCommuneList = false;
+                            });
+                            field.didChange(v);
+                          },
+                        ),
+                        if (field.hasError) ...[
+                          SizedBox(height: 6),
+                          Text(
+                            field.errorText!,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.error,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
-
+                  SizedBox(height: 14),
                   if (_error != null) ...[
                     SizedBox(height: 14),
                     Container(

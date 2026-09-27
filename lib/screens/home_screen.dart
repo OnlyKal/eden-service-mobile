@@ -10,6 +10,7 @@ import '../core/services/prestataire_service.dart';
 import '../core/services/prestataire_realtime_service.dart';
 import '../core/services/auth_service.dart';
 import '../core/constants/api_constants.dart';
+import '../core/constants/locations.dart';
 import '../core/utils/user_friendly_error.dart';
 import '../theme/app_colors.dart';
 import '../widgets/glass_card.dart';
@@ -2116,7 +2117,7 @@ class _FilterSheet extends StatefulWidget {
 
 class _FilterSheetState extends State<_FilterSheet> {
   String? _selectedCommune;
-  late TextEditingController _villeCtrl;
+  String? _selectedVille;
   String? _selectedTypeService;
   bool? _estValide;
   bool? _disponible;
@@ -2152,17 +2153,13 @@ class _FilterSheetState extends State<_FilterSheet> {
   void initState() {
     super.initState();
     _selectedCommune = widget.initialCommune;
-    _villeCtrl = TextEditingController(text: widget.initialVille ?? '');
+    // Une ville saisie hors liste reste affichée telle quelle : on ne perd
+    // jamais une localisation déjà enregistrée.
+    _selectedVille = widget.initialVille;
     _selectedTypeService = widget.initialTypeService;
     _estValide = widget.initialEstValide;
     _disponible = widget.initialDisponible;
     _ordering = widget.initialOrdering ?? '';
-  }
-
-  @override
-  void dispose() {
-    _villeCtrl.dispose();
-    super.dispose();
   }
 
   @override
@@ -2296,11 +2293,31 @@ class _FilterSheetState extends State<_FilterSheet> {
                               ),
                             ],
                             SizedBox(height: 18),
+                            // Ville
+                            _SheetLabel('Ville'),
+                            SizedBox(height: 8),
+                            _VilleSelector(
+                              value: _selectedVille,
+                              allowPartout: true,
+                              onChanged: (v) => setState(() {
+                                _selectedVille = v;
+                                // La commune dépend de la ville : on
+                                // réinitialise si elle n'y appartient plus.
+                                if (!Locations.communeAppartientA(
+                                  commune: _selectedCommune,
+                                  ville: v,
+                                )) {
+                                  _selectedCommune = null;
+                                }
+                              }),
+                            ),
+                            SizedBox(height: 18),
                             // Commune
                             _SheetLabel('Commune'),
                             SizedBox(height: 8),
                             _CommuneSelector(
                               value: _selectedCommune,
+                              ville: _selectedVille,
                               onChanged: (v) =>
                                   setState(() => _selectedCommune = v),
                             ),
@@ -2390,9 +2407,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                               Navigator.pop(context);
                               widget.onApply(
                                 commune: _selectedCommune,
-                                ville: _villeCtrl.text.trim().isEmpty
-                                    ? null
-                                    : _villeCtrl.text.trim(),
+                                ville: _selectedVille,
                                 typeService: _selectedTypeService,
                                 estValide: _estValide,
                                 disponible: _disponible,
@@ -2934,42 +2949,19 @@ String _orderingLabel(String value) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Kinshasa communes
-List<String> _kinshasaCommunes = [
-  'Bandalungwa',
-  'Barumbu',
-  'Bumbu',
-  'Gombe',
-  'Kalamu',
-  'Kasa-Vubu',
-  'Kimbanseke',
-  'Kinshasa',
-  'Kintambo',
-  'Kisenso',
-  'Lemba',
-  'Limete',
-  'Lingwala',
-  'Makala',
-  'Maluku',
-  'Masina',
-  'Matete',
-  'Mont-Ngafula',
-  'Ndjili',
-  'Ngaba',
-  'Ngaliema',
-  'Ngiri-Ngiri',
-  'Nsele',
-  'Selembao',
-];
+// Selecteur de ville (avec option « Partout » pour les filtres)
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Commune selector (tappable field → picker sheet)
-
-class _CommuneSelector extends StatelessWidget {
-  _CommuneSelector({required this.value, required this.onChanged});
+/// Champ de sélection d'une ville, avec l'option « Partout » (aucun filtre).
+class _VilleSelector extends StatelessWidget {
+  _VilleSelector({
+    required this.value,
+    required this.onChanged,
+    this.allowPartout = false,
+  });
 
   final String? value;
   final void Function(String?) onChanged;
+  final bool allowPartout;
 
   @override
   Widget build(BuildContext context) {
@@ -2979,7 +2971,8 @@ class _CommuneSelector extends StatelessWidget {
           context: context,
           backgroundColor: Colors.transparent,
           isScrollControlled: true,
-          builder: (_) => _CommunePickerSheet(initial: value),
+          builder: (_) =>
+              _VillePickerSheet(initial: value, allowPartout: allowPartout),
         );
         if (result != null) onChanged(result.isEmpty ? null : result);
       },
@@ -2994,14 +2987,14 @@ class _CommuneSelector extends StatelessWidget {
         child: Row(
           children: [
             Icon(
-              Icons.location_on_outlined,
+              Icons.location_city_outlined,
               size: 18,
               color: AppColors.primary,
             ),
             SizedBox(width: 10),
             Expanded(
               child: Text(
-                value ?? 'Sélectionner une commune',
+                value ?? (allowPartout ? 'Partout' : 'Sélectionner une ville'),
                 style: TextStyle(
                   fontSize: 13,
                   color: value != null
@@ -3033,11 +3026,296 @@ class _CommuneSelector extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Commune selector (tappable field → picker sheet)
+
+class _CommuneSelector extends StatelessWidget {
+  _CommuneSelector({
+    required this.value,
+    required this.onChanged,
+    required this.ville,
+  });
+
+  final String? value;
+  final void Function(String?) onChanged;
+  final String? ville;
+
+  @override
+  Widget build(BuildContext context) {
+    final communes = Locations.communesDe(ville);
+    final desactive = communes.isEmpty;
+
+    return Opacity(
+      opacity: desactive ? 0.55 : 1,
+      child: GestureDetector(
+        onTap: desactive
+            ? null
+            : () async {
+                final result = await showModalBottomSheet<String>(
+                  context: context,
+                  backgroundColor: Colors.transparent,
+                  isScrollControlled: true,
+                  builder: (_) =>
+                      _CommunePickerSheet(initial: value, communes: communes),
+                );
+                if (result != null) {
+                  onChanged(result.isEmpty ? null : result);
+                }
+              },
+        child: Container(
+          height: 48,
+          decoration: BoxDecoration(
+            color: AppColors.primarySurface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.glassBorder, width: 1.2),
+          ),
+          padding: EdgeInsets.symmetric(horizontal: 14),
+          child: Row(
+            children: [
+              Icon(
+                Icons.location_on_outlined,
+                size: 18,
+                color: AppColors.primary,
+              ),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  desactive
+                      ? 'Sélectionnez d’abord une ville'
+                      : value ?? 'Sélectionner une commune',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: value != null && !desactive
+                        ? AppColors.textPrimary
+                        : AppColors.textHint,
+                  ),
+                ),
+              ),
+              if (value != null && !desactive)
+                GestureDetector(
+                  onTap: () => onChanged(null),
+                  child: Icon(
+                    Icons.close_rounded,
+                    size: 16,
+                    color: AppColors.textSecondary,
+                  ),
+                )
+              else
+                Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 20,
+                  color: AppColors.textSecondary,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ville picker bottom sheet
+
+class _VillePickerSheet extends StatefulWidget {
+  _VillePickerSheet({this.initial, this.allowPartout = false});
+  final String? initial;
+  final bool allowPartout;
+
+  @override
+  State<_VillePickerSheet> createState() => _VillePickerSheetState();
+}
+
+class _VillePickerSheetState extends State<_VillePickerSheet> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  List<Ville> _filtered = Locations.villes;
+
+  void _onSearch(String q) {
+    setState(() {
+      final query = q.trim().toLowerCase();
+      _filtered = query.isEmpty
+          ? Locations.villes
+          : Locations.villes
+                .where(
+                  (v) =>
+                      v.nom.toLowerCase().contains(query) ||
+                      v.communes.any((c) => c.toLowerCase().contains(query)),
+                )
+                .toList();
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.7,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.92),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border.all(color: AppColors.glassBorder, width: 1.3),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(height: 12),
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.divider,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(20, 16, 20, 10),
+                  child: Container(
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySurface,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 14),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.search_rounded,
+                          size: 18,
+                          color: AppColors.primary,
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: _searchCtrl,
+                            onChanged: _onSearch,
+                            style: const TextStyle(fontSize: 14),
+                            decoration: const InputDecoration(
+                              hintText: 'Rechercher une ville…',
+                              border: InputBorder.none,
+                              isDense: true,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.only(bottom: 20),
+                    children: [
+                      if (widget.allowPartout)
+                        _VilleTile(
+                          nom: 'Partout',
+                          communes: const [],
+                          selected: widget.initial == null,
+                          onTap: () => Navigator.pop(context, ''),
+                        ),
+                      ..._filtered.map(
+                        (v) => _VilleTile(
+                          nom: v.nom,
+                          communes: v.communes,
+                          selected: v.nom.toLowerCase() ==
+                              (widget.initial ?? '').toLowerCase(),
+                          onTap: () => Navigator.pop(context, v.nom),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Commune picker bottom sheet
 
+class _VilleTile extends StatelessWidget {
+  _VilleTile({
+    required this.nom,
+    required this.communes,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String nom;
+  final List<String> communes;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    nom,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: selected
+                          ? AppColors.primary
+                          : AppColors.textPrimary,
+                    ),
+                  ),
+                  if (communes.isNotEmpty) ...[
+                    SizedBox(height: 2),
+                    Text(
+                      '${communes.length} commune'
+                      '${communes.length > 1 ? 's' : ''}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textHint,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (selected)
+              const Icon(
+                Icons.check_rounded,
+                color: AppColors.primary,
+                size: 18,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _CommunePickerSheet extends StatefulWidget {
-  _CommunePickerSheet({this.initial});
+  _CommunePickerSheet({this.initial, required this.communes});
   final String? initial;
+  final List<String> communes;
 
   @override
   State<_CommunePickerSheet> createState() => _CommunePickerSheetState();
@@ -3045,14 +3323,15 @@ class _CommunePickerSheet extends StatefulWidget {
 
 class _CommunePickerSheetState extends State<_CommunePickerSheet> {
   final TextEditingController _searchCtrl = TextEditingController();
-  List<String> _filtered = _kinshasaCommunes;
+  late List<String> _filtered = widget.communes;
 
   void _onSearch(String q) {
     setState(() {
-      _filtered = q.trim().isEmpty
-          ? _kinshasaCommunes
-          : _kinshasaCommunes
-                .where((c) => c.toLowerCase().contains(q.trim().toLowerCase()))
+      final query = q.trim().toLowerCase();
+      _filtered = query.isEmpty
+          ? widget.communes
+          : widget.communes
+                .where((c) => c.toLowerCase().contains(query))
                 .toList();
     });
   }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:http/http.dart' as http;
@@ -42,6 +43,7 @@ class AuthService {
       }
     }
     await syncFcmToken();
+    await syncDeviceType();
   }
 
   Future<void> _persist(AuthData data) async {
@@ -63,6 +65,7 @@ class AuthService {
     );
     AppRefreshService.instance.notifyAuthChanged();
     await syncFcmToken();
+    await syncDeviceType();
   }
 
   Future<void> logout() async {
@@ -111,6 +114,42 @@ class AuthService {
     } catch (error) {
       if (kDebugMode) {
         debugPrint('FCM token registration error: $error');
+      }
+    }
+  }
+
+  Future<void> syncDeviceType() async {
+    final user = _currentUser;
+    if (user == null) return;
+    try {
+      final authToken = user.token;
+      String deviceType;
+      if (kIsWeb) {
+        deviceType = 'android';
+      } else if (Platform.isIOS) {
+        deviceType = 'ios';
+      } else {
+        deviceType = 'android';
+      }
+
+      final response = await http.post(
+        Uri.parse(ApiConstants.typeAppareil),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': authToken,
+        },
+        body: jsonEncode({'type_appareil': deviceType}),
+      );
+
+      if (kDebugMode &&
+          (response.statusCode < 200 || response.statusCode >= 300)) {
+        debugPrint(
+          'Device type registration failed: ${response.statusCode}',
+        );
+      }
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Device type registration error: $error');
       }
     }
   }

@@ -20,6 +20,7 @@ class ApiConstants {
   static const String login = '$baseUrl/auth/login/';
   static const String utilisateurs = '$baseUrl/utilisateurs/';
   static const String fcmToken = '$baseUrl/utilisateurs/fcm-token/';
+  static const String typeAppareil = '$baseUrl/utilisateurs/type-appareil/';
   static const String changePassword = '$baseUrl/utilisateurs/change_password/';
   static const String updateMe = '$baseUrl/utilisateurs/me/';
   static const String uploadProfilePhoto =

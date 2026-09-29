@@ -8,6 +8,7 @@ import '../core/services/prestataire_service.dart';
 import '../core/services/version_check_service.dart';
 import '../core/services/whatsapp_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/certification_badge.dart';
 import '../widgets/expandable_text.dart';
 import '../widgets/gradient_background.dart';
 import '../widgets/whatsapp_icon.dart';
@@ -1005,17 +1006,18 @@ class _HeroSection extends StatelessWidget {
                           Row(
                             children: [
                               Flexible(
-                                child: Text(
-                                  user.displayName,
+                                child: NameWithCertification(
+                                  name: user.displayName,
+                                  estCertifie: prestataire.isCertified,
                                   style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.w800,
                                     color: Colors.white,
                                   ),
-                                  overflow: TextOverflow.ellipsis,
+                                  badgeSize: 18,
                                 ),
                               ),
-                              if (prestataire.estValide) ...[
+                              if (prestataire.isAvailable) ...[
                                 SizedBox(width: 6),
                                 Container(
                                   padding: EdgeInsets.symmetric(
@@ -1030,13 +1032,44 @@ class _HeroSection extends StatelessWidget {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Icon(
-                                        Icons.verified_rounded,
+                                    Icons.circle_rounded,
                                         color: Colors.white,
                                         size: 11,
                                       ),
                                       SizedBox(width: 3),
                                       Text(
-                                        'Validé',
+                                        'Disponible',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ]else ...[
+                                SizedBox(width: 6),
+                                Container(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.error,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.circle_rounded,
+                                        color: Colors.white,
+                                        size: 11,
+                                      ),
+                                      SizedBox(width: 3),
+                                      Text(
+                                        'Occupé',
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.w700,
@@ -1180,16 +1213,7 @@ class _StatsRow extends StatelessWidget {
                 label: 'Avis',
               ),
               _StatDivider(),
-              _StatItem(
-                icon: prestataire.estValide
-                    ? Icons.verified_rounded
-                    : Icons.hourglass_top_rounded,
-                value: prestataire.estValide ? 'Oui' : 'Non',
-                label: 'Validé',
-                valueColor: prestataire.estValide
-                    ? AppColors.primary
-                    : AppColors.warning,
-              ),
+             
             ],
           ),
         ),

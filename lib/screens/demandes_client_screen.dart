@@ -153,9 +153,11 @@ class _DemandesClientScreenState extends State<DemandesClientScreen> {
       if (_ratingPrefsLoaded) {
         _showMandatoryRating(_demandes[index]);
       } else {
-        unawaited(_loadRatingPromptedFromPrefs().then((_) {
-          if (mounted) _showMandatoryRating(_demandes[index]);
-        }));
+        unawaited(
+          _loadRatingPromptedFromPrefs().then((_) {
+            if (mounted) _showMandatoryRating(_demandes[index]);
+          }),
+        );
       }
     }
   }
@@ -264,8 +266,8 @@ class _DemandesClientScreenState extends State<DemandesClientScreen> {
     await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      isDismissible: false,
-      enableDrag: false,
+      isDismissible: true,
+      enableDrag: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _MandatoryRatingSheet(demande: demande),
     );
@@ -758,6 +760,7 @@ class _MandatoryRatingSheetState extends State<_MandatoryRatingSheet> {
   final _avisCtrl = TextEditingController();
   int _note = 0;
   bool _submitting = false;
+  String? _error;
 
   static const _labels = [
     '',
@@ -776,7 +779,11 @@ class _MandatoryRatingSheetState extends State<_MandatoryRatingSheet> {
 
   Future<void> _submit() async {
     if (_note <= 0 || _submitting) return;
-    setState(() => _submitting = true);
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
     try {
       await PrestataireService.instance.rateProvider(
         prestataireId: widget.demande.prestataire.id,
@@ -787,7 +794,12 @@ class _MandatoryRatingSheetState extends State<_MandatoryRatingSheet> {
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _submitting = false);
+      // L'utilisateur doit savoir que l'avis n'a pas été enregistré,
+      // sans être coincé dans la modale.
+      setState(() {
+        _submitting = false;
+        _error = "L'avis n'a pas pu être envoyé. Réessayez ou fermez.";
+      });
       debugPrint('[MandatoryRating] error: $e');
     }
   }
@@ -795,154 +807,195 @@ class _MandatoryRatingSheetState extends State<_MandatoryRatingSheet> {
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.of(context).viewInsets.bottom;
-    return PopScope(
-      canPop: false,
-      child: Container(
-        padding: EdgeInsets.fromLTRB(20, 16, 20, 20 + bottom),
-        decoration: BoxDecoration(
-          color: Color(0xFFF6F8FA),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.textHint.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
+    return Container(
+      padding: EdgeInsets.fromLTRB(20, 16, 20, 20 + bottom),
+      decoration: BoxDecoration(
+        color: Color(0xFFF6F8FA),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.textHint.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(2),
             ),
-            SizedBox(height: 18),
-            Row(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: AppColors.warning.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+          ),
+          SizedBox(height: 18),
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.star_rounded,
+                  color: AppColors.warning,
+                  size: 22,
+                ),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Donnez votre avis',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Votre retour aide à améliorer les services.',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Fermeture possible : l'avis est encouragé, jamais imposé.
+              GestureDetector(
+                onTap: () => Navigator.of(context).pop(false),
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 8, top: 4, bottom: 4),
                   child: Icon(
-                    Icons.star_rounded,
-                    color: AppColors.warning,
+                    Icons.close_rounded,
+                    color: AppColors.textHint,
                     size: 22,
                   ),
                 ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Donnez votre avis',
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Votre retour aide à améliorer les services.',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
+              ),
+            ],
+          ),
+          SizedBox(height: 22),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(5, (i) {
+              final star = i + 1;
+              return GestureDetector(
+                onTap: _submitting ? null : () => setState(() => _note = star),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 5),
+                  child: Icon(
+                    star <= _note
+                        ? Icons.star_rounded
+                        : Icons.star_border_rounded,
+                    color: star <= _note
+                        ? AppColors.warning
+                        : AppColors.textHint.withValues(alpha: 0.55),
+                    size: 40,
                   ),
                 ),
-              ],
+              );
+            }),
+          ),
+          SizedBox(height: 8),
+          Text(
+            _note > 0 ? _labels[_note] : 'Sélectionnez une note',
+            style: TextStyle(
+              color: _note > 0 ? AppColors.warning : AppColors.textHint,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
             ),
-            SizedBox(height: 22),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(5, (i) {
-                final star = i + 1;
-                return GestureDetector(
-                  onTap: _submitting
-                      ? null
-                      : () => setState(() => _note = star),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 5),
-                    child: Icon(
-                      star <= _note
-                          ? Icons.star_rounded
-                          : Icons.star_border_rounded,
-                      color: star <= _note
-                          ? AppColors.warning
-                          : AppColors.textHint.withValues(alpha: 0.55),
-                      size: 40,
+          ),
+          SizedBox(height: 18),
+          TextField(
+            controller: _avisCtrl,
+            enabled: !_submitting,
+            minLines: 2,
+            maxLines: 3,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(
+              hintText: 'Ajoutez un commentaire (optionnel)',
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+          SizedBox(height: 18),
+          if (_error != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.error.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.error.withValues(alpha: 0.25),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.error_outline_rounded,
+                    color: AppColors.error,
+                    size: 18,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.error,
+                      ),
                     ),
                   ),
-                );
-              }),
-            ),
-            SizedBox(height: 8),
-            Text(
-              _note > 0 ? _labels[_note] : 'Sélectionnez une note',
-              style: TextStyle(
-                color: _note > 0 ? AppColors.warning : AppColors.textHint,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
+                ],
               ),
             ),
-            SizedBox(height: 18),
-            TextField(
-              controller: _avisCtrl,
-              enabled: !_submitting,
-              minLines: 2,
-              maxLines: 3,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: InputDecoration(
-                hintText: 'Ajoutez un commentaire (optionnel)',
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-            SizedBox(height: 18),
-            GestureDetector(
-              onTap: _note == 0 || _submitting ? null : _submit,
-              child: Container(
-                width: double.infinity,
-                height: 52,
-                decoration: BoxDecoration(
-                  gradient: _note == 0 || _submitting
-                      ? null
-                      : AppColors.primaryGradient,
-                  color: _note == 0 || _submitting
-                      ? AppColors.textHint.withValues(alpha: 0.18)
-                      : null,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                alignment: Alignment.center,
-                child: _submitting
-                    ? SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2.4,
-                        ),
-                      )
-                    : Text(
-                        'Envoyer mon avis',
-                        style: TextStyle(
-                          color: _note == 0 ? AppColors.textHint : Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 15,
-                        ),
-                      ),
-              ),
-            ),
+            SizedBox(height: 12),
           ],
-        ),
+          GestureDetector(
+            onTap: _note == 0 || _submitting ? null : _submit,
+            child: Container(
+              width: double.infinity,
+              height: 52,
+              decoration: BoxDecoration(
+                gradient: _note == 0 || _submitting
+                    ? null
+                    : AppColors.primaryGradient,
+                color: _note == 0 || _submitting
+                    ? AppColors.textHint.withValues(alpha: 0.18)
+                    : null,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              alignment: Alignment.center,
+              child: _submitting
+                  ? SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2.4,
+                      ),
+                    )
+                  : Text(
+                      'Envoyer mon avis',
+                      style: TextStyle(
+                        color: _note == 0 ? AppColors.textHint : Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
+            ),
+          ),
+        ],
       ),
     );
   }

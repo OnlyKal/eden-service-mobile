@@ -134,7 +134,29 @@ class LoginResponse {
     data: json['data'] != null
         ? AuthData.fromJson(json['data'] as Map<String, dynamic>)
         : null,
-    message: json['message'] as String,
-    statusCode: json['status_code'] as int,
+    message: readApiMessage(json),
+    statusCode: (json['status_code'] as num?)?.toInt() ?? 0,
   );
+
+  /// Lit le message d'une réponse d'API.
+  ///
+  /// Le backend renvoie deux enveloppes : `message` en cas de succès, et
+  /// `error: {code, message}` en cas d'échec (identifiants invalides, compte
+  /// suspendu, compte non validé…). Les deux sont gérées ici pour ne jamais
+  /// lever d'erreur de cast sur un refus du serveur.
+  static String readApiMessage(Map<String, dynamic> json) {
+    final top = json['message'];
+    if (top is String && top.trim().isNotEmpty) return top;
+
+    final error = json['error'];
+    if (error is Map) {
+      final message = error['message'];
+      if (message is String && message.trim().isNotEmpty) return message;
+    }
+
+    final detail = json['detail'];
+    if (detail is String && detail.trim().isNotEmpty) return detail;
+
+    return 'Une erreur est survenue. Veuillez réessayer.';
+  }
 }

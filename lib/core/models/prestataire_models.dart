@@ -107,6 +107,11 @@ class Prestataire {
   final String commune;
   final String ville;
   final bool estValide;
+
+  /// Certification du compte, gérée exclusivement par l'administrateur
+  /// Django. Sert uniquement à afficher le badge bleu à côté du nom.
+  /// Ne doit jamais être envoyé par l'application.
+  final bool isCertified;
   final bool isAvailable;
   final int nombrePhotos;
   final int nombreCommentaires;
@@ -129,6 +134,7 @@ class Prestataire {
     required this.commune,
     required this.ville,
     required this.estValide,
+    this.isCertified = false,
     required this.isAvailable,
     required this.nombrePhotos,
     required this.nombreCommentaires,
@@ -158,6 +164,7 @@ class Prestataire {
     commune: json['commune'] as String? ?? '',
     ville: json['ville'] as String? ?? '',
     estValide: _parseBool(json['est_valide']),
+    isCertified: _parseBool(json['is_certified']),
     isAvailable: _parseBool(json['is_available']),
     nombrePhotos: json['nombre_photos'] as int? ?? 0,
     nombreCommentaires: json['nombre_commentaires'] as int? ?? 0,
@@ -172,6 +179,8 @@ class Prestataire {
     dateDernierCalculNiveau: json['date_dernier_calcul_niveau'] as String?,
   );
 
+  /// La certification est conservée telle quelle : elle n'est gérée que par
+  /// l'administrateur Django.
   Prestataire copyWith({bool? isAvailable, bool? estValide}) {
     return Prestataire(
       id: id,
@@ -182,6 +191,7 @@ class Prestataire {
       commune: commune,
       ville: ville,
       estValide: estValide ?? this.estValide,
+      isCertified: isCertified,
       isAvailable: isAvailable ?? this.isAvailable,
       nombrePhotos: nombrePhotos,
       nombreCommentaires: nombreCommentaires,
@@ -226,6 +236,10 @@ class MonProfilPrestataire {
   final String? dateDebutAbonnement;
   final String? dateFinAbonnement;
   final bool estValide;
+
+  /// Certification du compte (`is_certified`), gérée uniquement par
+  /// l'administrateur Django.
+  final bool isCertified;
   final bool isAvailable;
   final List<PrestatairePhoto> photos;
   final String niveau;
@@ -249,6 +263,7 @@ class MonProfilPrestataire {
     this.dateDebutAbonnement,
     this.dateFinAbonnement,
     required this.estValide,
+    this.isCertified = false,
     required this.isAvailable,
     required this.photos,
     required this.niveau,
@@ -278,6 +293,7 @@ class MonProfilPrestataire {
         dateDebutAbonnement: json['date_debut_abonnement'] as String?,
         dateFinAbonnement: json['date_fin_abonnement'] as String?,
         estValide: _parseBool(json['est_valide']),
+        isCertified: _parseBool(json['is_certified']),
         isAvailable: _parseBool(json['is_available']),
         photos: (json['photos'] as List<dynamic>? ?? [])
             .map((e) => PrestatairePhoto.fromJson(e as Map<String, dynamic>))

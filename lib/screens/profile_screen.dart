@@ -6542,7 +6542,267 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
                   ),
 
                   SizedBox(height: 24),
-
+ // ── Ville (liste déroulante) ───────────────────────────
+                  _SheetLabel('Ville'),
+                  SizedBox(height: 8),
+                  FormField<String>(
+                    initialValue: _selectedVille,
+                    validator: (_) => _selectedVille == null
+                        ? 'Veuillez sélectionner une ville'
+                        : null,
+                    builder: (field) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _ProviderInlineDropdown<String>(
+                          value: _selectedVille,
+                          placeholder: 'Sélectionner une ville',
+                          icon: Icons.location_city_outlined,
+                          options: Locations.nomsVilles,
+                          onChanged: (v) {
+                            FocusScope.of(context).unfocus();
+                            setState(() {
+                              _selectedVille = v;
+                              _villeCtrl.text = v ?? '';
+                              // La commune dépend de la ville.
+                              if (!Locations.communeAppartientA(
+                                commune: _selectedCommune,
+                                ville: v,
+                              )) {
+                                _selectedCommune = null;
+                                _communeSearchCtrl.clear();
+                              }
+                              _showCommuneList = false;
+                            });
+                            field.didChange(v);
+                          },
+                        ),
+                        if (field.hasError) ...[
+                          SizedBox(height: 6),
+                          Text(
+                            field.errorText!,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.error,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  SizedBox(height: 14),
+                  // ── Commune — dropdown search ──────────────────────────
+                  _SheetLabel('Commune'),
+                  SizedBox(height: 8),
+                  FormField<String>(
+                    initialValue: _selectedCommune,
+                    validator: (_) => _selectedCommune == null
+                        ? 'Veuillez sélectionner une commune'
+                        : null,
+                    builder: (field) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        GestureDetector(
+                          onTap: () => setState(() {
+                            _showCommuneList = !_showCommuneList;
+                            if (_showCommuneList) {
+                              _communeSearchCtrl.clear();
+                              _filteredCommunes = Locations.communesDe(_villeCtrl.text.trim());
+                            }
+                          }),
+                          child: Container(
+                            height: 52,
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.65),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: field.hasError
+                                    ? AppColors.error
+                                    : _showCommuneList
+                                    ? AppColors.primary
+                                    : AppColors.divider,
+                                width: (_showCommuneList || field.hasError)
+                                    ? 1.8
+                                    : 1.2,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.map_outlined,
+                                  color: AppColors.primary,
+                                  size: 19,
+                                ),
+                                SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    _selectedCommune ??
+                                        'Sélectionner une commune',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                      color: _selectedCommune != null
+                                          ? AppColors.textPrimary
+                                          : AppColors.textHint,
+                                    ),
+                                  ),
+                                ),
+                                Icon(
+                                  _showCommuneList
+                                      ? Icons.keyboard_arrow_up_rounded
+                                      : Icons.keyboard_arrow_down_rounded,
+                                  color: AppColors.textHint,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (field.hasError)
+                          Padding(
+                            padding: EdgeInsets.only(top: 6, left: 14),
+                            child: Text(
+                              field.errorText!,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: AppColors.error,
+                              ),
+                            ),
+                          ),
+                        if (_showCommuneList) ...[
+                          SizedBox(height: 6),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.97),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: AppColors.divider,
+                                width: 1.2,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.glassShadow,
+                                  blurRadius: 14,
+                                  offset: Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                Padding(
+                                  padding: EdgeInsets.fromLTRB(12, 10, 12, 4),
+                                  child: TextField(
+                                    controller: _communeSearchCtrl,
+                                    autofocus: true,
+                                    onChanged: _filterCommunes,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                    decoration: InputDecoration(
+                                      hintText: 'Rechercher une commune...',
+                                      hintStyle: TextStyle(
+                                        color: AppColors.textHint,
+                                        fontSize: 13,
+                                      ),
+                                      prefixIcon: Icon(
+                                        Icons.search_rounded,
+                                        color: AppColors.primary,
+                                        size: 18,
+                                      ),
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(
+                                        vertical: 10,
+                                      ),
+                                      filled: true,
+                                      fillColor: AppColors.primarySurface,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                ConstrainedBox(
+                                  constraints: BoxConstraints(maxHeight: 200),
+                                  child: _filteredCommunes.isEmpty
+                                      ? Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            vertical: 16,
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              'Aucune commune trouvée',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                color: AppColors.textHint,
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                      : ListView.builder(
+                                          padding: EdgeInsets.only(bottom: 8),
+                                          shrinkWrap: true,
+                                          itemCount: _filteredCommunes.length,
+                                          itemBuilder: (_, i) {
+                                            final c = _filteredCommunes[i];
+                                            final selected =
+                                                c == _selectedCommune;
+                                            return GestureDetector(
+                                              onTap: () {
+                                                setState(() {
+                                                  _selectedCommune = c;
+                                                  _showCommuneList = false;
+                                                });
+                                                field.didChange(c);
+                                              },
+                                              child: Container(
+                                                padding: EdgeInsets.symmetric(
+                                                  horizontal: 16,
+                                                  vertical: 12,
+                                                ),
+                                                color: selected
+                                                    ? AppColors.primarySurface
+                                                    : Colors.transparent,
+                                                child: Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        c,
+                                                        style: TextStyle(
+                                                          fontSize: 14,
+                                                          fontWeight: selected
+                                                              ? FontWeight.w600
+                                                              : FontWeight.w400,
+                                                          color: selected
+                                                              ? AppColors
+                                                                    .primary
+                                                              : AppColors
+                                                                    .textPrimary,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    if (selected)
+                                                      Icon(
+                                                        Icons.check_rounded,
+                                                        color:
+                                                            AppColors.primary,
+                                                        size: 16,
+                                                      ),
+                                                  ],
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  SizedBox(height: 14),
                   // ── Type de service — dropdown search ─────────────────
                   _SheetLabel('Services proposés'),
                   SizedBox(height: 8),
@@ -6810,268 +7070,9 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
                   ),
                   SizedBox(height: 14),
 
-                  // ── Commune — dropdown search ──────────────────────────
-                  _SheetLabel('Commune'),
-                  SizedBox(height: 8),
-                  FormField<String>(
-                    initialValue: _selectedCommune,
-                    validator: (_) => _selectedCommune == null
-                        ? 'Veuillez sélectionner une commune'
-                        : null,
-                    builder: (field) => Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        GestureDetector(
-                          onTap: () => setState(() {
-                            _showCommuneList = !_showCommuneList;
-                            if (_showCommuneList) {
-                              _communeSearchCtrl.clear();
-                              _filteredCommunes = Locations.communesDe(_villeCtrl.text.trim());
-                            }
-                          }),
-                          child: Container(
-                            height: 52,
-                            padding: EdgeInsets.symmetric(horizontal: 16),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.65),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: field.hasError
-                                    ? AppColors.error
-                                    : _showCommuneList
-                                    ? AppColors.primary
-                                    : AppColors.divider,
-                                width: (_showCommuneList || field.hasError)
-                                    ? 1.8
-                                    : 1.2,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.map_outlined,
-                                  color: AppColors.primary,
-                                  size: 19,
-                                ),
-                                SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    _selectedCommune ??
-                                        'Sélectionner une commune',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                      color: _selectedCommune != null
-                                          ? AppColors.textPrimary
-                                          : AppColors.textHint,
-                                    ),
-                                  ),
-                                ),
-                                Icon(
-                                  _showCommuneList
-                                      ? Icons.keyboard_arrow_up_rounded
-                                      : Icons.keyboard_arrow_down_rounded,
-                                  color: AppColors.textHint,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        if (field.hasError)
-                          Padding(
-                            padding: EdgeInsets.only(top: 6, left: 14),
-                            child: Text(
-                              field.errorText!,
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: AppColors.error,
-                              ),
-                            ),
-                          ),
-                        if (_showCommuneList) ...[
-                          SizedBox(height: 6),
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.97),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: AppColors.divider,
-                                width: 1.2,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: AppColors.glassShadow,
-                                  blurRadius: 14,
-                                  offset: Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              children: [
-                                Padding(
-                                  padding: EdgeInsets.fromLTRB(12, 10, 12, 4),
-                                  child: TextField(
-                                    controller: _communeSearchCtrl,
-                                    autofocus: true,
-                                    onChanged: _filterCommunes,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: AppColors.textPrimary,
-                                    ),
-                                    decoration: InputDecoration(
-                                      hintText: 'Rechercher une commune...',
-                                      hintStyle: TextStyle(
-                                        color: AppColors.textHint,
-                                        fontSize: 13,
-                                      ),
-                                      prefixIcon: Icon(
-                                        Icons.search_rounded,
-                                        color: AppColors.primary,
-                                        size: 18,
-                                      ),
-                                      isDense: true,
-                                      contentPadding: EdgeInsets.symmetric(
-                                        vertical: 10,
-                                      ),
-                                      filled: true,
-                                      fillColor: AppColors.primarySurface,
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                        borderSide: BorderSide.none,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                ConstrainedBox(
-                                  constraints: BoxConstraints(maxHeight: 200),
-                                  child: _filteredCommunes.isEmpty
-                                      ? Padding(
-                                          padding: EdgeInsets.symmetric(
-                                            vertical: 16,
-                                          ),
-                                          child: Center(
-                                            child: Text(
-                                              'Aucune commune trouvée',
-                                              style: TextStyle(
-                                                fontSize: 13,
-                                                color: AppColors.textHint,
-                                              ),
-                                            ),
-                                          ),
-                                        )
-                                      : ListView.builder(
-                                          padding: EdgeInsets.only(bottom: 8),
-                                          shrinkWrap: true,
-                                          itemCount: _filteredCommunes.length,
-                                          itemBuilder: (_, i) {
-                                            final c = _filteredCommunes[i];
-                                            final selected =
-                                                c == _selectedCommune;
-                                            return GestureDetector(
-                                              onTap: () {
-                                                setState(() {
-                                                  _selectedCommune = c;
-                                                  _showCommuneList = false;
-                                                });
-                                                field.didChange(c);
-                                              },
-                                              child: Container(
-                                                padding: EdgeInsets.symmetric(
-                                                  horizontal: 16,
-                                                  vertical: 12,
-                                                ),
-                                                color: selected
-                                                    ? AppColors.primarySurface
-                                                    : Colors.transparent,
-                                                child: Row(
-                                                  children: [
-                                                    Expanded(
-                                                      child: Text(
-                                                        c,
-                                                        style: TextStyle(
-                                                          fontSize: 14,
-                                                          fontWeight: selected
-                                                              ? FontWeight.w600
-                                                              : FontWeight.w400,
-                                                          color: selected
-                                                              ? AppColors
-                                                                    .primary
-                                                              : AppColors
-                                                                    .textPrimary,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                    if (selected)
-                                                      Icon(
-                                                        Icons.check_rounded,
-                                                        color:
-                                                            AppColors.primary,
-                                                        size: 16,
-                                                      ),
-                                                  ],
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: 14),
+                  
 
-                  // ── Ville (liste déroulante) ───────────────────────────
-                  _SheetLabel('Ville'),
-                  SizedBox(height: 8),
-                  FormField<String>(
-                    initialValue: _selectedVille,
-                    validator: (_) => _selectedVille == null
-                        ? 'Veuillez sélectionner une ville'
-                        : null,
-                    builder: (field) => Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _ProviderInlineDropdown<String>(
-                          value: _selectedVille,
-                          placeholder: 'Sélectionner une ville',
-                          icon: Icons.location_city_outlined,
-                          options: Locations.nomsVilles,
-                          onChanged: (v) {
-                            FocusScope.of(context).unfocus();
-                            setState(() {
-                              _selectedVille = v;
-                              _villeCtrl.text = v ?? '';
-                              // La commune dépend de la ville.
-                              if (!Locations.communeAppartientA(
-                                commune: _selectedCommune,
-                                ville: v,
-                              )) {
-                                _selectedCommune = null;
-                                _communeSearchCtrl.clear();
-                              }
-                              _showCommuneList = false;
-                            });
-                            field.didChange(v);
-                          },
-                        ),
-                        if (field.hasError) ...[
-                          SizedBox(height: 6),
-                          Text(
-                            field.errorText!,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppColors.error,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: 14),
+                 
                   if (_error != null) ...[
                     SizedBox(height: 14),
                     Container(

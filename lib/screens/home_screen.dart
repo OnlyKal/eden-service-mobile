@@ -13,6 +13,7 @@ import '../core/constants/api_constants.dart';
 import '../core/constants/locations.dart';
 import '../core/utils/user_friendly_error.dart';
 import '../theme/app_colors.dart';
+import '../widgets/certification_badge.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/glass_button.dart';
 import '../widgets/gradient_background.dart';
@@ -1586,14 +1587,15 @@ class _ProviderListCard extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        user.displayName,
+                      child: NameWithCertification(
+                        name: user.displayName,
+                        estCertifie: prestataire.isCertified,
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
                           color: AppColors.textPrimary,
                         ),
-                        overflow: TextOverflow.ellipsis,
+                        badgeSize: 15,
                       ),
                     ),
                     _AvailabilityDot(

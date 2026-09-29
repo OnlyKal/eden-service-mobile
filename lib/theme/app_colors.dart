@@ -31,6 +31,9 @@ class AppColors {
   static const Color error = Color(0xFFE53935);
   static const Color info = Color(0xFF00A88A);
 
+  /// Bleu du badge de certification du compte.
+  static const Color certification = Color(0xFF1877F2);
+
   // ── WhatsApp (marque) ───────────────────────────────────────────────────
   /// Vert officiel WhatsApp, proche du vert Zwacop pour rester cohérent
   /// avec la palette de l'application.

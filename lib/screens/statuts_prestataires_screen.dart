@@ -22,6 +22,7 @@ import '../core/services/statut_realtime_service.dart';
 import '../core/services/statut_unread_service.dart';
 import '../core/services/statut_upload_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/certification_badge.dart';
 import '../widgets/gradient_background.dart';
 import 'prestataire_detail_screen.dart';
 
@@ -1053,10 +1054,10 @@ class _VerticalStatutCardState extends State<_VerticalStatutCard> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            name,
+                          NameWithCertification(
+                            name: name,
+                            estCertifie: prestataire?.isCertified ?? false,
                             maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 14,
@@ -1523,10 +1524,10 @@ class _StatutStoryAvatarState extends State<StatutStoryAvatar> {
             ),
           ),
           SizedBox(height: 6),
-          Text(
-            name,
+          NameWithCertification(
+            name: name,
+            estCertifie: prestataire?.isCertified ?? false,
             maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
             style: TextStyle(
               color: AppColors.textPrimary,
@@ -1958,8 +1959,9 @@ class StatutListCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  name,
+                NameWithCertification(
+                  name: name,
+                  estCertifie: prestataire?.isCertified ?? false,
                   style: TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 15,

@@ -33,6 +33,8 @@ class ApiConstants {
   static Uri prestatairesWs() => _webSocketUri('/ws/prestataires/');
   static const String monProfilPrestataire =
       '$baseUrl/prestataires/mon_profil/';
+  static const String maPositionPrestataire =
+      '$baseUrl/prestataires/ma-position/';
   static const String services = '$baseUrl/services/';
 
   // ── Photos ───────────────────────────────────────────────────────────────
@@ -54,8 +56,18 @@ class ApiConstants {
   // ── Paiements abonnement ────────────────────────────────────────────────
   static const String paiementConfig = '$baseUrl/paiements/config/';
   static const String paiementCreate = '$baseUrl/paiements/create/';
+  static const String providerConversion =
+      '$baseUrl/utilisateurs/provider-conversion/';
   static String paiementStatus(int id) => '$baseUrl/paiements/$id/status/';
   static const String paiementHistory = '$baseUrl/paiements/history/';
+
+  // ── Certification prestataire ──────────────────────────────────────────
+  static const String paiementCertificationCreate =
+      '$baseUrl/paiements/certification/create/';
+  static const String maDemandeCertification =
+      '$baseUrl/demandes-certification/ma-demande/';
+  static String documentsCertification(int id) =>
+      '$baseUrl/demandes-certification/$id/documents/';
 
   // ── Demandes de service ─────────────────────────────────────────────
   static const String demandesService = '$baseUrl/demandes-service/';
@@ -100,8 +112,7 @@ class ApiConstants {
       '$baseUrl/notifications/tout_marquer_lu/';
 
   // ── Versions app ────────────────────────────────────────────────────────
-  static const String versionAppActuelle =
-      '$baseUrl/versions-app/actuelle/';
+  static const String versionAppActuelle = '$baseUrl/versions-app/actuelle/';
 
   // ── Statuts prestataires ───────────────────────────────────────────────
   static const String statutsPrestataires = '$baseUrl/statuts-prestataires/';

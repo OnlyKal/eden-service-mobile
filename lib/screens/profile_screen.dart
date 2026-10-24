@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
@@ -7,6 +8,7 @@ import '../core/models/abonnement_models.dart';
 import '../core/models/prestataire_models.dart';
 import '../core/services/app_refresh_service.dart';
 import '../core/services/auth_service.dart';
+import '../screens/certification_screen.dart';
 import '../core/services/prestataire_service.dart';
 import '../core/services/user_realtime_service.dart';
 import '../core/utils/user_friendly_error.dart';
@@ -14,9 +16,13 @@ import '../core/constants/api_constants.dart';
 import '../core/constants/locations.dart';
 import '../theme/app_colors.dart';
 import '../widgets/gradient_background.dart';
+import '../widgets/certification_badge.dart';
 
 class ProfileScreen extends StatefulWidget {
-  ProfileScreen({super.key});
+  ProfileScreen({super.key, this.openSouscription = false});
+
+  /// Ouvre directement le modal de paiement (réabonnement).
+  final bool openSouscription;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -25,6 +31,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen>
     with WidgetsBindingObserver {
   MonProfilPrestataire? _monProfil;
+  bool? _isOwnProfileCertified;
   bool _loadingProfil = false;
   String? _profilError;
   bool _uploadingProfilePhoto = false;
@@ -40,18 +47,39 @@ class _ProfileScreenState extends State<ProfileScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     AppRefreshService.instance.tick.addListener(_onAppRefresh);
-    if (AuthService.instance.currentUser?.estPrestataire == true) {
+    if (AuthService.instance.currentUser?.hasProviderProfile == true) {
       _loadMonProfil();
       _loadAbonnement();
+    }
+    _syncProviderStatus();
+    if (widget.openSouscription) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showSouscriptionSheet(context);
+      });
+    }
+  }
+
+  /// Le statut prestataire évolue côté serveur (expiration, réabonnement) :
+  /// on le resynchronise pour afficher « Se réabonner » plutôt que
+  /// « Devenir prestataire » à un prestataire dont l'abonnement a expiré.
+  Future<void> _syncProviderStatus() async {
+    final changed = await AuthService.instance.refreshProviderStatus();
+    if (!changed || !mounted) return;
+    setState(() {});
+    if (AuthService.instance.currentUser?.hasProviderProfile == true) {
+      _loadMonProfil(silent: _monProfil != null);
+      _loadAbonnement(silent: _abonnement != null);
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed &&
-        AuthService.instance.currentUser?.estPrestataire == true) {
+        AuthService.instance.currentUser?.hasProviderProfile == true) {
       _loadAbonnement();
+      _loadMonProfil(silent: true);
     }
+    if (state == AppLifecycleState.resumed) _syncProviderStatus();
   }
 
   @override
@@ -73,7 +101,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       AppRefreshTopic.prestataires,
       AppRefreshTopic.ratings,
     })) {
-      if (AuthService.instance.currentUser?.estPrestataire == true) {
+      if (AuthService.instance.currentUser?.hasProviderProfile == true) {
         _loadMonProfil(silent: true);
       }
     }
@@ -82,7 +110,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       AppRefreshTopic.abonnement,
       AppRefreshTopic.profile,
     })) {
-      if (AuthService.instance.currentUser?.estPrestataire == true) {
+      if (AuthService.instance.currentUser?.hasProviderProfile == true) {
         _loadAbonnement(silent: true);
       }
     }
@@ -97,9 +125,21 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
     try {
       final profil = await PrestataireService.instance.getMonProfil();
+      var isCertified = profil.isCertified;
+      try {
+        // L'API garantit `is_certified` dans le détail public prestataire.
+        // Certains payloads de mon_profil ne renvoient pas encore ce champ.
+        final detail = await PrestataireService.instance.getPrestataire(
+          profil.id,
+        );
+        isCertified = detail.isCertified;
+      } catch (_) {
+        // On conserve la valeur éventuelle renvoyée par mon_profil.
+      }
       if (!mounted) return;
       setState(() {
         _monProfil = profil;
+        _isOwnProfileCertified = isCertified;
         _loadingProfil = false;
       });
     } catch (_) {
@@ -171,8 +211,12 @@ class _ProfileScreenState extends State<ProfileScreen>
       backgroundColor: Colors.transparent,
       builder: (_) => _PaiementAbonnementSheet(
         abonnement: _abonnement,
-        onSuccess: () {
-          if (mounted) _loadAbonnement();
+        onSuccess: (_) async {
+          // Le réabonnement réactive le compte prestataire côté serveur.
+          await AuthService.instance.refreshProviderStatus();
+          if (!mounted) return;
+          setState(() {});
+          await Future.wait([_loadAbonnement(), _loadMonProfil(silent: true)]);
         },
       ),
     );
@@ -334,8 +378,12 @@ class _ProfileScreenState extends State<ProfileScreen>
                   SizedBox(height: 20),
 
                   // ── Username ─────────────────────────────────────────────
-                  Text(
-                    user.username,
+                  NameWithCertification(
+                    name: user.username,
+                    estCertifie:
+                        _isOwnProfileCertified ??
+                        _monProfil?.isCertified ??
+                        false,
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w700,
@@ -359,7 +407,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   SizedBox(height: 12),
 
                   // ── Role badge ───────────────────────────────────────────
-                  if (user.estPrestataire)
+                  if (user.hasProviderProfile)
                     Container(
                       padding: EdgeInsets.symmetric(
                         horizontal: 14,
@@ -501,7 +549,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                             _InfoRow(
                               icon: Icons.badge_outlined,
                               label: 'Type de compte',
-                              value: user.estPrestataire
+                              value: user.hasProviderProfile
                                   ? 'Prestataire'
                                   : 'Client',
                             ),
@@ -514,7 +562,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   SizedBox(height: 28),
 
                   // ── Become provider CTA ──────────────────────────────────
-                  if (!user.estPrestataire) ...[
+                  if (!user.hasProviderProfile) ...[
                     GestureDetector(
                       onTap: () => _showBecomeProviderSheet(context),
                       child: Container(
@@ -586,7 +634,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   ],
 
                   // ── Prestataire section ──────────────────────────────────
-                  if (user.estPrestataire) ...[
+                  if (user.hasProviderProfile) ...[
                     _PrestataireProfileSection(
                       loading: _loadingProfil,
                       error: _profilError,
@@ -616,6 +664,19 @@ class _ProfileScreenState extends State<ProfileScreen>
                       abonnement: _abonnement,
                       onRetry: _loadAbonnement,
                       onSouscrire: () => _showSouscriptionSheet(context),
+                    ),
+                    SizedBox(height: 14),
+                    _ProfileActionTile(
+                      icon: Icons.verified_user_outlined,
+                      title: 'Certification',
+                      subtitle: _monProfil?.isCertified == true
+                          ? 'Votre compte est certifié'
+                          : 'Vérifiez votre identité et vos compétences',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const CertificationScreen(),
+                        ),
+                      ),
                     ),
                     SizedBox(height: 28),
                   ],
@@ -883,18 +944,70 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Future<void> _showBecomeProviderSheet(BuildContext ctx) async {
-    final becameProvider = await showModalBottomSheet<bool>(
+    Map<String, dynamic>? providerDraft;
+    PaiementTransaction? existingTransaction;
+    try {
+      final saved = await AuthService.instance.getProviderConversion();
+      if (saved != null && saved['finalisee'] != true) {
+        providerDraft = Map<String, dynamic>.from(saved['conversion'] as Map);
+        final tx = saved['transaction'] as Map<String, dynamic>?;
+        if (tx != null) existingTransaction = PaiementTransaction.fromJson(tx);
+      }
+    } catch (_) {
+      // La création d'une nouvelle demande reste possible si l'historique
+      // distant est momentanément indisponible.
+    }
+    if (!ctx.mounted) return;
+    providerDraft ??= await showModalBottomSheet<Map<String, dynamic>>(
       context: ctx,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _BecomeProviderSheet(),
     );
-    if (!mounted || becameProvider != true) return;
-    setState(() {
-      _profilError = null;
-      _abonnementError = null;
-    });
-    await Future.wait([_loadMonProfil(), _loadAbonnement()]);
+    if (!ctx.mounted || providerDraft == null) return;
+    final existingStatus = existingTransaction?.statut.toUpperCase();
+    final pendingTransaction = existingStatus == 'PENDING'
+        ? existingTransaction
+        : null;
+    // Seul un paiement réussi est repris tel quel (pour finaliser le compte).
+    // Après un échec, le formulaire s'ouvre vide pour saisir librement le
+    // numéro et la durée de la nouvelle tentative.
+    final paidTransaction =
+        existingStatus == 'SUCCESS' || existingStatus == 'COMPLETE'
+        ? existingTransaction
+        : null;
+    showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _PaiementAbonnementSheet(
+        abonnement: null,
+        conversionDraft: providerDraft,
+        // Ne vérifier une transaction reprise qu'après le clic explicite
+        // sur le bouton de paiement.
+        initialTransaction: paidTransaction,
+        retryTransaction: pendingTransaction,
+        onSuccess: (transaction) async {
+          if (transaction == null) {
+            throw Exception('Transaction de paiement introuvable.');
+          }
+          final result = await AuthService.instance.becomeProvider(
+            transactionId: transaction.id,
+          );
+          if (result['success'] != true) {
+            throw Exception(
+              result['message'] ?? 'Activation du compte impossible.',
+            );
+          }
+          if (!mounted) return;
+          setState(() {
+            _profilError = null;
+            _abonnementError = null;
+          });
+          await Future.wait([_loadMonProfil(), _loadAbonnement()]);
+        },
+      ),
+    );
   }
 
   String _initial(String username) {
@@ -1584,9 +1697,9 @@ class _EditPrestataireSheetBodyState extends State<_EditPrestataireSheetBody> {
   void _filterCommunes(String q) {
     final lower = q.toLowerCase();
     setState(() {
-      _filteredCommunes = Locations.communesDe(_villeCtrl.text.trim())
-          .where((c) => c.toLowerCase().contains(lower))
-          .toList();
+      _filteredCommunes = Locations.communesDe(
+        _villeCtrl.text.trim(),
+      ).where((c) => c.toLowerCase().contains(lower)).toList();
     });
   }
 
@@ -2084,7 +2197,9 @@ class _EditPrestataireSheetBodyState extends State<_EditPrestataireSheetBody> {
                               _showCommuneList = !_showCommuneList;
                               if (_showCommuneList) {
                                 _communeSearchCtrl.clear();
-                                _filteredCommunes = Locations.communesDe(_villeCtrl.text.trim());
+                                _filteredCommunes = Locations.communesDe(
+                                  _villeCtrl.text.trim(),
+                                );
                               }
                             }),
                             child: Container(
@@ -2614,6 +2729,31 @@ class _SubmitButton extends StatelessWidget {
 
 // ── Abonnement card ───────────────────────────────────────────────────────────
 
+class _ProfileActionTile extends StatelessWidget {
+  const _ProfileActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    color: Colors.white.withValues(alpha: .82),
+    child: ListTile(
+      leading: Icon(icon, color: AppColors.primary),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onTap: onTap,
+    ),
+  );
+}
+
 class _AbonnementCard extends StatelessWidget {
   _AbonnementCard({
     required this.loading,
@@ -2765,9 +2905,20 @@ class _AbonnementCard extends StatelessWidget {
     }
 
     if (abonnement == null) {
-      return Text(
-        'Aucune donnée disponible.',
-        style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Aucun abonnement actif. Un abonnement est nécessaire pour utiliser le compte prestataire.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+          SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: onSouscrire,
+            icon: Icon(Icons.payments_outlined),
+            label: Text('Choisir une formule'),
+          ),
+        ],
       );
     }
 
@@ -2784,7 +2935,6 @@ class _AbonnementBody extends StatelessWidget {
   Widget build(BuildContext context) {
     // ── Status badge ──────────────────────────────────────────────────────
     final bool actif = abonnement.estAbonnementCourantActif;
-    final bool essai = abonnement.estEnEssai;
     final DateTime? finAbonnement = abonnement.dateFinAbonnementEffective;
     final DateTime? finDernierAbonnement = abonnement.dateFinDernierAbonnement;
     final int? joursAbonnementRestants = abonnement.joursAbonnementRestants;
@@ -2800,19 +2950,12 @@ class _AbonnementBody extends StatelessWidget {
       badgeBg = AppColors.primarySurface;
       badgeIcon = Icons.verified_rounded;
       badgeLabel = 'Abonnement actif';
-    } else if (essai) {
-      badgeColor = Color(0xFFF59E0B); // amber
-      badgeBg = Color(0xFFFFFBEB);
-      badgeIcon = Icons.hourglass_top_rounded;
-      badgeLabel = 'Période d\'essai';
     } else {
       badgeColor = AppColors.error;
       badgeBg = Color(0xFFFEF2F2);
       badgeIcon = Icons.block_rounded;
       badgeLabel = 'Inactif';
     }
-
-    final bool essaiTermine = abonnement.essaiTermine;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2844,28 +2987,6 @@ class _AbonnementBody extends StatelessWidget {
             ],
           ),
         ),
-
-        // ── Trial details ──────────────────────────────────────────────
-        if (essai) ...[
-          SizedBox(height: 16),
-          _AbInfoRow(
-            icon: Icons.timer_outlined,
-            label: 'Jours restants',
-            value:
-                '${abonnement.joursEssaiRestants} jour${abonnement.joursEssaiRestants != 1 ? 's' : ''}',
-            valueColor: abonnement.joursEssaiRestants <= 3
-                ? AppColors.error
-                : AppColors.textPrimary,
-          ),
-          if (abonnement.dateFinEssai != null) ...[
-            SizedBox(height: 10),
-            _AbInfoRow(
-              icon: Icons.calendar_today_outlined,
-              label: 'Fin de l\'essai',
-              value: _formatDate(abonnement.dateFinEssai!),
-            ),
-          ],
-        ],
 
         // ── Active subscription details ────────────────────────────────
         if (actif) ...[
@@ -2927,9 +3048,7 @@ class _AbonnementBody extends StatelessWidget {
         if (abonnement.estInactif) ...[
           SizedBox(height: 14),
           Text(
-            essaiTermine
-                ? 'Votre période d\'essai est terminée. Souscrivez un abonnement pour continuer à profiter du service.'
-                : 'Souscrivez à un abonnement pour accéder à toutes les fonctionnalités.',
+            'Un abonnement actif est obligatoire pour utiliser votre compte prestataire. Choisissez une formule pour continuer.',
             style: TextStyle(
               color: AppColors.textSecondary,
               fontSize: 12.5,
@@ -2985,11 +3104,7 @@ class _AbonnementBody extends StatelessWidget {
         '${dt.year}';
   }
 
-  static String _formatStatus(String value) {
-    final clean = value.replaceAll('_', ' ').trim();
-    if (clean.isEmpty) return '-';
-    return clean[0].toUpperCase() + clean.substring(1);
-  }
+  static String _formatStatus(String value) => statutLisible(value);
 
   static String _formatRemainingDays(int days) {
     if (days <= 0) return 'Moins d’un jour';
@@ -3042,10 +3157,19 @@ class _AbInfoRow extends StatelessWidget {
 }
 
 class _PaiementAbonnementSheet extends StatefulWidget {
-  _PaiementAbonnementSheet({required this.abonnement, required this.onSuccess});
+  _PaiementAbonnementSheet({
+    required this.abonnement,
+    required this.onSuccess,
+    this.conversionDraft,
+    this.initialTransaction,
+    this.retryTransaction,
+  });
 
   final AbonnementStatut? abonnement;
-  final VoidCallback onSuccess;
+  final Map<String, dynamic>? conversionDraft;
+  final PaiementTransaction? initialTransaction;
+  final PaiementTransaction? retryTransaction;
+  final Future<void> Function(PaiementTransaction?) onSuccess;
 
   @override
   State<_PaiementAbonnementSheet> createState() =>
@@ -3064,6 +3188,9 @@ class _PaiementAbonnementSheetState extends State<_PaiementAbonnementSheet> {
   bool _loading = true;
   bool _submitting = false;
   bool _checkingStatus = false;
+  bool _pollInFlight = false;
+  bool _successActionRunning = false;
+  bool _successActionComplete = false;
   String? _error;
 
   bool get _pending => _transaction?.statut.toUpperCase() == 'PENDING';
@@ -3071,13 +3198,24 @@ class _PaiementAbonnementSheetState extends State<_PaiementAbonnementSheet> {
   @override
   void initState() {
     super.initState();
-    final phone = AuthService.instance.currentUser?.telephone ?? '';
+    final phone =
+        widget.retryTransaction?.telephone ??
+        widget.initialTransaction?.telephone ??
+        AuthService.instance.currentUser?.telephone ??
+        '';
     _phoneCtrl.text = _normalizePhone(phone);
+    _transaction = widget.initialTransaction;
     UserRealtimeService.instance.watch();
     _userRealtimeSub = UserRealtimeService.instance.events.listen(
       _handleUserRealtimeEvent,
     );
     _loadConfig();
+    if (_transaction?.statut.toUpperCase() == 'SUCCESS' ||
+        _transaction?.statut.toLowerCase() == 'complete') {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _runSuccessAction());
+    } else if (_pending && _transaction != null) {
+      _startPolling(_transaction!.id);
+    }
   }
 
   @override
@@ -3093,9 +3231,18 @@ class _PaiementAbonnementSheetState extends State<_PaiementAbonnementSheet> {
     try {
       final config = await AuthService.instance.getPaiementConfig();
       if (!mounted) return;
+      final matchingPlan = config.plans.where(
+        (plan) =>
+            plan.dureeMois ==
+            (widget.initialTransaction ?? widget.retryTransaction)?.dureeMois,
+      );
       setState(() {
         _config = config;
-        _selectedPlan = config.plans.isNotEmpty ? config.plans.first : null;
+        _selectedPlan = matchingPlan.isNotEmpty
+            ? matchingPlan.first
+            : config.plans.isNotEmpty
+            ? config.plans.first
+            : null;
         _loading = false;
       });
     } catch (_) {
@@ -3144,12 +3291,43 @@ class _PaiementAbonnementSheetState extends State<_PaiementAbonnementSheet> {
           AppRefreshTopic.profile,
           AppRefreshTopic.home,
         });
-        widget.onSuccess();
+        unawaited(_runSuccessAction());
       }
     }
   }
 
-  Future<void> _createPayment() async {
+  Future<void> _runSuccessAction() async {
+    if (_successActionRunning || _successActionComplete) return;
+    setState(() {
+      _successActionRunning = true;
+      _checkingStatus = true;
+      _error = null;
+    });
+    try {
+      await widget.onSuccess(_transaction);
+      if (mounted) setState(() => _successActionComplete = true);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = userFriendlyError(
+            e,
+            fallback:
+                'Paiement confirmé, mais activation du profil impossible. Réessayez.',
+          );
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _successActionRunning = false;
+          _checkingStatus = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _createPayment({bool retryPending = false}) async {
+    FocusScope.of(context).unfocus();
     final plan = _selectedPlan;
     final phone = _normalizePhone(_phoneCtrl.text);
     if (plan == null) {
@@ -3171,13 +3349,27 @@ class _PaiementAbonnementSheetState extends State<_PaiementAbonnementSheet> {
         phone: phone,
         currency: _currency,
         dureeMois: plan.dureeMois,
+        conversion: widget.conversionDraft,
+        retryPending: retryPending || widget.retryTransaction != null,
+        retryTransactionId: retryPending
+            ? _transaction?.id
+            : widget.retryTransaction?.id,
       );
       if (!mounted) return;
+      final samePendingAttempt =
+          (retryPending || widget.retryTransaction != null) &&
+          transaction.id == _transaction?.id &&
+          transaction.statut.toUpperCase() == 'PENDING';
       setState(() {
         _transaction = transaction;
         _submitting = false;
+        _error = samePendingAttempt
+            ? 'FlexPay indique que le paiement est toujours en cours. Aucun nouveau paiement n’a été lancé.'
+            : null;
       });
       _startPolling(transaction.id);
+    } on TimeoutException {
+      await _recoverPaymentAfterTimeout(plan.dureeMois);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -3185,6 +3377,36 @@ class _PaiementAbonnementSheetState extends State<_PaiementAbonnementSheet> {
         _error = userFriendlyError(e, fallback: 'Paiement impossible.');
       });
     }
+  }
+
+  /// La réponse de création n'est pas arrivée à temps, mais la demande a pu
+  /// être enregistrée et envoyée au téléphone : on reprend son suivi plutôt
+  /// que de laisser le bouton tourner ou d'inviter à payer une seconde fois.
+  Future<void> _recoverPaymentAfterTimeout(int dureeMois) async {
+    PaiementTransaction? recovered;
+    try {
+      recovered = await AuthService.instance.findRecentPendingAbonnementPayment(
+        dureeMois: dureeMois,
+        currency: _currency,
+      );
+    } catch (_) {
+      recovered = null;
+    }
+    if (!mounted) return;
+    if (recovered != null) {
+      setState(() {
+        _transaction = recovered;
+        _submitting = false;
+        _error = null;
+      });
+      _startPolling(recovered.id);
+      return;
+    }
+    setState(() {
+      _submitting = false;
+      _error =
+          'La demande de paiement prend trop de temps. Si vous avez reçu une demande de confirmation sur votre téléphone, attendez quelques instants avant de réessayer.';
+    });
   }
 
   void _startPolling(int transactionId) {
@@ -3202,17 +3424,23 @@ class _PaiementAbonnementSheetState extends State<_PaiementAbonnementSheet> {
         }
         return;
       }
-      await _checkPaymentStatus();
+      await _checkPaymentStatus(silent: true);
     });
   }
 
-  Future<void> _checkPaymentStatus() async {
+  /// [silent] : vérification automatique en arrière-plan, sans indicateur de
+  /// chargement sur le bouton (évite un spinner qui clignote toutes les 5 s).
+  Future<void> _checkPaymentStatus({bool silent = false}) async {
     final current = _transaction;
-    if (current == null || _checkingStatus) return;
-    setState(() {
-      _checkingStatus = true;
-      _error = null;
-    });
+    if (current == null || _checkingStatus || _pollInFlight) return;
+    if (silent) {
+      _pollInFlight = true;
+    } else {
+      setState(() {
+        _checkingStatus = true;
+        _error = null;
+      });
+    }
     try {
       final tx = await AuthService.instance.getPaiementStatus(current.id);
       if (!mounted) return;
@@ -3220,214 +3448,288 @@ class _PaiementAbonnementSheetState extends State<_PaiementAbonnementSheet> {
       setState(() => _transaction = tx);
       if (_isFinalStatus(status)) {
         _pollTimer?.cancel();
-        if (status == 'SUCCESS') widget.onSuccess();
+        if (status == 'SUCCESS' || status == 'COMPLETE') {
+          await _runSuccessAction();
+        }
         return;
       }
-
-      final abonnement = await AuthService.instance.getMonAbonnement();
-      if (!mounted) return;
-      if (abonnement?.estAbonnementCourantActif == true) {
-        _pollTimer?.cancel();
-        setState(() => _transaction = tx.copyWith(statut: 'SUCCESS'));
-        widget.onSuccess();
+    } catch (e) {
+      // En mode silencieux, le prochain intervalle réessaiera.
+      if (mounted && !silent) {
+        setState(() {
+          _error = userFriendlyError(
+            e,
+            fallback:
+                'Vérification indisponible. Réessayez dans quelques instants.',
+          );
+        });
       }
-    } catch (_) {
-      // if (mounted) {
-      //   setState(
-      //     () => _error = 'Impossible de vérifier le paiement pour le moment.',
-      //   );
-      // }
     } finally {
-      if (mounted) setState(() => _checkingStatus = false);
+      _pollInFlight = false;
+      if (mounted && !silent) setState(() => _checkingStatus = false);
+    }
+  }
+
+  /// Après un échec, revient au formulaire : l'utilisateur peut changer de
+  /// numéro Mobile Money ou de durée avant de relancer le paiement.
+  void _retryPayment() {
+    _pollTimer?.cancel();
+    setState(() {
+      _transaction = null;
+      _checkingStatus = false;
+      _error = null;
+    });
+  }
+
+  Future<void> _retryPendingPayment() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Relancer le paiement ?'),
+        content: const Text(
+          'Zwacop vérifie d’abord la transaction précédente. Si elle n’a pas abouti, une nouvelle demande de confirmation est envoyée sur votre téléphone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Garder en attente'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Vérifier et relancer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _createPayment(retryPending: true);
+    }
+  }
+
+  void _handleRetry() {
+    if (_pending) {
+      unawaited(_retryPendingPayment());
+    } else {
+      _retryPayment();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.86,
-      minChildSize: 0.62,
-      maxChildSize: 0.96,
-      expand: false,
-      builder: (_, controller) => Container(
-        decoration: BoxDecoration(
-          color: Color(0xFFF5FDF9),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        child: Column(
-          children: [
-            SizedBox(height: 12),
-            Container(
-              width: 44,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.divider,
-                borderRadius: BorderRadius.circular(4),
+    // Remonte le sheet au-dessus du clavier pour garder le bouton accessible.
+    return AnimatedPadding(
+      duration: Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.86,
+        minChildSize: 0.62,
+        maxChildSize: 0.96,
+        expand: false,
+        builder: (_, controller) => Container(
+          decoration: BoxDecoration(
+            color: Color(0xFFF5FDF9),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: Column(
+            children: [
+              SizedBox(height: 12),
+              Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.divider,
+                  borderRadius: BorderRadius.circular(4),
+                ),
               ),
-            ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(20, 16, 20, 10),
-              child: Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      gradient: AppColors.primaryGradient,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Icon(Icons.payments_rounded, color: Colors.white),
-                  ),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Paiement abonnement',
-                          style: TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        Text(
-                          'Activez votre compte prestataire par Mobile Money',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: Icon(
-                      Icons.close_rounded,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView(
-                controller: controller,
-                padding: EdgeInsets.fromLTRB(20, 8, 20, 26),
-                children: [
-                  if (_loading)
-                    Padding(
-                      padding: EdgeInsets.symmetric(vertical: 60),
-                      child: Center(
-                        child: CircularProgressIndicator(
-                          color: AppColors.primary,
-                        ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(20, 16, 20, 10),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        gradient: AppColors.primaryGradient,
+                        borderRadius: BorderRadius.circular(14),
                       ),
-                    )
-                  else if (_config?.flexpayActif == false)
-                    _PaymentNotice(
-                      icon: Icons.warning_amber_rounded,
-                      title: 'Paiement indisponible',
-                      text: 'Le paiement en ligne est momentanément désactivé.',
-                      color: AppColors.warning,
-                    )
-                  else ...[
-                    if (_transaction == null) ...[
-                      _SheetLabel('Durée'),
-                      SizedBox(height: 10),
-                      ...(_config?.plans ?? <PaiementPlan>[]).map(
-                        (plan) => _PaymentPlanCard(
-                          plan: plan,
-                          currency: _currency,
-                          selected: _selectedPlan?.dureeMois == plan.dureeMois,
-                          onTap: () => setState(() => _selectedPlan = plan),
-                        ),
-                      ),
-                      SizedBox(height: 16),
-                      _SheetLabel('Devise'),
-                      SizedBox(height: 10),
-                      Row(
+                      child: Icon(Icons.payments_rounded, color: Colors.white),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: _CurrencyButton(
-                              label: 'CDF',
-                              selected: _currency == 'CDF',
-                              onTap: () => setState(() => _currency = 'CDF'),
+                          Text(
+                            'Paiement abonnement',
+                            style: TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
-                          SizedBox(width: 10),
-                          Expanded(
-                            child: _CurrencyButton(
-                              label: 'USD',
-                              selected: _currency == 'USD',
-                              onTap: () => setState(() => _currency = 'USD'),
+                          Text(
+                            'Activez votre compte prestataire par Mobile Money',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 12,
                             ),
                           ),
                         ],
                       ),
-                      SizedBox(height: 16),
-                      _SheetLabel('Téléphone Mobile Money'),
-                      SizedBox(height: 8),
-                      TextField(
-                        controller: _phoneCtrl,
-                        keyboardType: TextInputType.phone,
-                        decoration: InputDecoration(
-                          hintText: '243812000000',
-                          prefixIcon: Icon(
-                            Icons.phone_iphone_rounded,
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: Icon(
+                        Icons.close_rounded,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  controller: controller,
+                  padding: EdgeInsets.fromLTRB(20, 8, 20, 26),
+                  children: [
+                    if (_loading)
+                      Padding(
+                        padding: EdgeInsets.symmetric(vertical: 60),
+                        child: Center(
+                          child: CircularProgressIndicator(
                             color: AppColors.primary,
                           ),
-                          filled: true,
-                          fillColor: Colors.white.withValues(alpha: 0.88),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide.none,
+                        ),
+                      )
+                    else if (_config?.flexpayActif == false)
+                      _PaymentNotice(
+                        icon: Icons.warning_amber_rounded,
+                        title: 'Paiement indisponible',
+                        text:
+                            'Le paiement en ligne est momentanément désactivé.',
+                        color: AppColors.warning,
+                      )
+                    else ...[
+                      if (_transaction == null) ...[
+                        _SheetLabel('Durée'),
+                        SizedBox(height: 10),
+                        ...(_config?.plans ?? <PaiementPlan>[]).map(
+                          (plan) => _PaymentPlanCard(
+                            plan: plan,
+                            currency: _currency,
+                            selected:
+                                _selectedPlan?.dureeMois == plan.dureeMois,
+                            onTap: () => setState(() => _selectedPlan = plan),
                           ),
                         ),
-                      ),
-                      if (_error != null) ...[
-                        SizedBox(height: 12),
-                        _PaymentInlineError(message: _error!),
-                      ],
-                      SizedBox(height: 20),
-                      GestureDetector(
-                        onTap: _submitting ? null : _createPayment,
-                        child: Container(
-                          height: 54,
-                          decoration: BoxDecoration(
-                            gradient: AppColors.primaryGradient,
-                            borderRadius: BorderRadius.circular(16),
+                        SizedBox(height: 16),
+                        _SheetLabel('Devise'),
+                        SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _CurrencyButton(
+                                label: 'CDF',
+                                selected: _currency == 'CDF',
+                                onTap: () => setState(() => _currency = 'CDF'),
+                              ),
+                            ),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: _CurrencyButton(
+                                label: 'USD',
+                                selected: _currency == 'USD',
+                                onTap: () => setState(() => _currency = 'USD'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 16),
+                        _SheetLabel('Téléphone Mobile Money'),
+                        SizedBox(height: 8),
+                        TextField(
+                          controller: _phoneCtrl,
+                          keyboardType: TextInputType.phone,
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) => FocusScope.of(context).unfocus(),
+                          // Le clavier téléphone iOS n'a pas de touche « Terminé ».
+                          onTapOutside: (_) => FocusScope.of(context).unfocus(),
+                          // Fait défiler jusqu'au bouton de validation sous le champ.
+                          scrollPadding: EdgeInsets.only(bottom: 160),
+                          decoration: InputDecoration(
+                            hintText: '243812000000',
+                            prefixIcon: Icon(
+                              Icons.phone_iphone_rounded,
+                              color: AppColors.primary,
+                            ),
+                            filled: true,
+                            fillColor: Colors.white.withValues(alpha: 0.88),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: BorderSide.none,
+                            ),
                           ),
-                          alignment: Alignment.center,
-                          child: _submitting
-                              ? CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2.5,
-                                )
-                              : Text(
-                                  'Initier le paiement',
-                                  style: TextStyle(
+                        ),
+                        if (_error != null) ...[
+                          SizedBox(height: 12),
+                          _PaymentInlineError(message: _error!),
+                        ],
+                        SizedBox(height: 20),
+                        GestureDetector(
+                          onTap: _submitting ? null : _createPayment,
+                          child: Container(
+                            height: 54,
+                            decoration: BoxDecoration(
+                              gradient: AppColors.primaryGradient,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            alignment: Alignment.center,
+                            child: _submitting
+                                ? CircularProgressIndicator(
                                     color: Colors.white,
-                                    fontWeight: FontWeight.w800,
+                                    strokeWidth: 2.5,
+                                  )
+                                : Text(
+                                    'Payer mon abonnement',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                    ),
                                   ),
-                                ),
+                          ),
                         ),
-                      ),
-                    ] else
-                      _PaymentStatusView(
-                        transaction: _transaction!,
-                        pending: _pending,
-                        checking: _checkingStatus,
-                        error: _error,
-                        onRefresh: _checkPaymentStatus,
-                        onClose: () => Navigator.pop(context),
-                      ),
+                        if (_submitting) ...[
+                          SizedBox(height: 12),
+                          Text(
+                            'Envoi de la demande… Vous allez recevoir une demande de confirmation Mobile Money sur votre téléphone.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 12.5,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ] else
+                        _PaymentStatusView(
+                          transaction: _transaction!,
+                          pending: _pending,
+                          checking: _checkingStatus || _submitting,
+                          error: _error,
+                          successActionComplete: _successActionComplete,
+                          onRefresh: _checkPaymentStatus,
+                          onRetry: _handleRetry,
+                          onClose: () => Navigator.pop(context),
+                        ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -3494,13 +3796,36 @@ class _PaymentPlanCard extends StatelessWidget {
                 ),
               ),
             ),
-            Text(
-              '$amount $currency',
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '$amount $currency',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if ((double.tryParse(plan.reductionPourcentage) ?? 0) > 0) ...[
+                  Text(
+                    '${plan.initialAmountFor(currency)} $currency',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 11,
+                      decoration: TextDecoration.lineThrough,
+                    ),
+                  ),
+                  Text(
+                    '-${plan.reductionPourcentage}% · économisez ${plan.discountAmountFor(currency)} $currency',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ],
             ),
             if (selected) ...[
               SizedBox(width: 8),
@@ -3586,6 +3911,141 @@ class _PaymentInlineError extends StatelessWidget {
   }
 }
 
+/// Animation d'attente continue : ondes autour du téléphone et points animés,
+/// pendant que l'utilisateur confirme le paiement Mobile Money.
+class _PendingPaymentNotice extends StatefulWidget {
+  const _PendingPaymentNotice({required this.color});
+  final Color color;
+
+  @override
+  State<_PendingPaymentNotice> createState() => _PendingPaymentNoticeState();
+}
+
+class _PendingPaymentNoticeState extends State<_PendingPaymentNotice>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: Duration(milliseconds: 2400),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.color;
+    return Container(
+      padding: EdgeInsets.fromLTRB(20, 24, 20, 20),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.86),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.glassBorder),
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            width: 120,
+            height: 120,
+            child: AnimatedBuilder(
+              animation: _controller,
+              builder: (_, __) {
+                final t = _controller.value;
+                // Le téléphone « respire » doucement.
+                final scale = 1 + 0.06 * math.sin(t * 2 * math.pi);
+                return Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    for (var i = 0; i < 3; i++) _ripple((t + i / 3) % 1, color),
+                    Transform.scale(
+                      scale: scale,
+                      child: Container(
+                        width: 58,
+                        height: 58,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: color,
+                          boxShadow: [
+                            BoxShadow(
+                              color: color.withValues(alpha: 0.35),
+                              blurRadius: 16,
+                              offset: Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.phone_iphone_rounded,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+          SizedBox(height: 10),
+          AnimatedBuilder(
+            animation: _controller,
+            builder: (_, __) {
+              final dots = (_controller.value * 4).floor() % 4;
+              return Text.rich(
+                TextSpan(
+                  text: 'En attente de confirmation',
+                  children: [
+                    TextSpan(text: '.' * dots),
+                    // Réserve la place des points pour éviter que le texte bouge.
+                    TextSpan(
+                      text: '.' * (3 - dots),
+                      style: TextStyle(color: Colors.transparent),
+                    ),
+                  ],
+                ),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              );
+            },
+          ),
+          SizedBox(height: 6),
+          Text(
+            'Validez le paiement sur votre téléphone avec votre code Mobile Money. Cette page se met à jour automatiquement.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.textSecondary, height: 1.45),
+          ),
+          SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              minHeight: 4,
+              color: color,
+              backgroundColor: color.withValues(alpha: 0.15),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _ripple(double progress, Color color) {
+    final size = 58 + 62 * progress;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: color.withValues(alpha: 0.18 * (1 - progress)),
+      ),
+    );
+  }
+}
+
 class _PaymentNotice extends StatelessWidget {
   _PaymentNotice({
     required this.icon,
@@ -3638,21 +4098,25 @@ class _PaymentStatusView extends StatelessWidget {
     required this.pending,
     required this.checking,
     required this.error,
+    required this.successActionComplete,
     required this.onRefresh,
+    required this.onRetry,
     required this.onClose,
   });
   final PaiementTransaction transaction;
   final bool pending;
   final bool checking;
   final String? error;
+  final bool successActionComplete;
   final VoidCallback onRefresh;
+  final VoidCallback onRetry;
   final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
     final rawStatus = transaction.statut;
     final status = rawStatus.toLowerCase();
-    final label = rawStatus.toUpperCase();
+    final label = transaction.statutLabel.toLowerCase();
     final success = status == 'success' || status == 'complete';
     final failed =
         status == 'failed' ||
@@ -3667,24 +4131,29 @@ class _PaymentStatusView extends StatelessWidget {
         : AppColors.warning;
     return Column(
       children: [
-        _PaymentNotice(
-          icon: success
-              ? Icons.check_circle_rounded
-              : failed
-              ? Icons.cancel_rounded
-              : Icons.hourglass_top_rounded,
-          title: success
-              ? 'Paiement réussi'
-              : failed
-              ? 'Paiement non confirmé'
-              : 'Paiement en attente',
-          text: success
-              ? 'Votre abonnement est activé. Vous pouvez continuer à recevoir des demandes.'
-              : failed
-              ? 'La transaction est $label. Vous pouvez réessayer.'
-              : 'Confirmez la transaction sur votre téléphone. Le statut se met à jour automatiquement.',
-          color: color,
-        ),
+        if (pending)
+          _PendingPaymentNotice(color: color)
+        else
+          _PaymentNotice(
+            icon: success
+                ? Icons.check_circle_rounded
+                : failed
+                ? Icons.cancel_rounded
+                : Icons.hourglass_top_rounded,
+            title: success
+                ? 'Paiement réussi'
+                : failed
+                ? 'Paiement non confirmé'
+                : 'Paiement en attente',
+            text: success
+                ? successActionComplete
+                      ? 'Paiement confirmé et compte prestataire activé.'
+                      : 'Paiement confirmé. Activation du compte prestataire en cours.'
+                : failed
+                ? 'Paiement $label. Vous pouvez réessayer.'
+                : 'Confirmez la transaction sur votre téléphone. Le statut se met à jour automatiquement.',
+            color: color,
+          ),
         SizedBox(height: 14),
         _AbInfoRow(
           icon: Icons.receipt_long_rounded,
@@ -3703,10 +4172,11 @@ class _PaymentStatusView extends StatelessWidget {
         _AbInfoRow(
           icon: Icons.info_outline_rounded,
           label: 'Statut',
-          value: status,
+          value: transaction.statutLabel,
           valueColor: color,
         ),
-        if (pending) ...[
+        if (pending ||
+            (success && !successActionComplete && error != null)) ...[
           SizedBox(height: 18),
           GestureDetector(
             onTap: checking ? null : onRefresh,
@@ -3739,7 +4209,9 @@ class _PaymentStatusView extends StatelessWidget {
                         ),
                         SizedBox(width: 8),
                         Text(
-                          'Vérifier maintenant',
+                          pending
+                              ? 'Vérifier maintenant'
+                              : 'Réessayer l’activation',
                           style: TextStyle(
                             color: AppColors.primary,
                             fontWeight: FontWeight.w800,
@@ -3750,11 +4222,56 @@ class _PaymentStatusView extends StatelessWidget {
             ),
           ),
         ],
+        if (pending) ...[
+          SizedBox(height: 10),
+          GestureDetector(
+            onTap: checking ? null : onRetry,
+            child: Container(
+              height: 46,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.divider),
+              ),
+              child: Text(
+                'Le paiement a échoué ? Vérifier et relancer',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
         if (error != null) ...[
           SizedBox(height: 12),
           _PaymentInlineError(message: error!),
         ],
-        if (success || failed) ...[
+        if (failed) ...[
+          SizedBox(height: 18),
+          GestureDetector(
+            onTap: checking ? null : onRetry,
+            child: Container(
+              height: 50,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                gradient: AppColors.primaryGradient,
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Text(
+                'Réessayer le paiement',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+        ],
+        if ((success && successActionComplete) || failed) ...[
           SizedBox(height: 18),
           GestureDetector(
             onTap: onClose,
@@ -3969,6 +4486,8 @@ class _SouscriptionSheetState extends State<_SouscriptionSheet> {
             Expanded(
               child: ListView(
                 controller: controller,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: EdgeInsets.fromLTRB(20, 16, 20, 32),
                 children: [
                   if (_successMsg != null) ...[
@@ -5790,12 +6309,14 @@ class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
   final bool tappable;
+  final bool certified;
 
   _InfoRow({
     required this.icon,
     required this.label,
     required this.value,
     this.tappable = false,
+    this.certified = false,
   });
 
   @override
@@ -5827,13 +6348,26 @@ class _InfoRow extends StatelessWidget {
                   ),
                 ),
                 SizedBox(height: 2),
-                Text(
-                  value,
-                  style: TextStyle(
-                    color: tappable ? AppColors.primary : AppColors.textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        value,
+                        style: TextStyle(
+                          color: tappable
+                              ? AppColors.primary
+                              : AppColors.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (certified) ...[
+                      SizedBox(width: 5),
+                      CertificationBadge(size: 14),
+                    ],
+                  ],
                 ),
               ],
             ),
@@ -6418,9 +6952,9 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
   void _filterCommunes(String q) {
     final lower = q.toLowerCase();
     setState(() {
-      _filteredCommunes = Locations.communesDe(_villeCtrl.text.trim())
-          .where((c) => c.toLowerCase().contains(lower))
-          .toList();
+      _filteredCommunes = Locations.communesDe(
+        _villeCtrl.text.trim(),
+      ).where((c) => c.toLowerCase().contains(lower)).toList();
     });
   }
 
@@ -6436,35 +6970,14 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _loading = true;
-      _error = null;
+    Navigator.of(context).pop(<String, dynamic>{
+      'type_service': _selectedTypeService ?? '',
+      'service_ids': _selectedServiceIds.where((id) => id > 0).toList(),
+      'adresse_rue': _adresseRueCtrl.text.trim(),
+      'commune': _selectedCommune ?? '',
+      'ville': _selectedVille?.trim() ?? '',
+      'presentation': _presentationCtrl.text.trim(),
     });
-    try {
-      final res = await AuthService.instance.becomeProvider(
-        typeService: _selectedTypeService ?? '',
-        serviceIds: _selectedServiceIds.where((id) => id > 0).toList(),
-        adresseRue: _adresseRueCtrl.text.trim(),
-        commune: _selectedCommune ?? '',
-        ville: _selectedVille?.trim() ?? '',
-        presentation: _presentationCtrl.text.trim(),
-      );
-      if (!mounted) return;
-      if (res['success'] == true) {
-        Navigator.of(context).pop(true);
-      } else {
-        setState(() {
-          _error = (res['message'] as String?) ?? 'Une erreur est survenue.';
-          _loading = false;
-        });
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = userFriendlyError(e);
-        _loading = false;
-      });
-    }
   }
 
   @override
@@ -6530,7 +7043,7 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
                             ),
                           ),
                           Text(
-                            'Complétez votre profil professionnel',
+                            'Le paiement obligatoire vient ensuite',
                             style: TextStyle(
                               fontSize: 12,
                               color: AppColors.textSecondary,
@@ -6542,7 +7055,7 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
                   ),
 
                   SizedBox(height: 24),
- // ── Ville (liste déroulante) ───────────────────────────
+                  // ── Ville (liste déroulante) ───────────────────────────
                   _SheetLabel('Ville'),
                   SizedBox(height: 8),
                   FormField<String>(
@@ -6606,7 +7119,9 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
                             _showCommuneList = !_showCommuneList;
                             if (_showCommuneList) {
                               _communeSearchCtrl.clear();
-                              _filteredCommunes = Locations.communesDe(_villeCtrl.text.trim());
+                              _filteredCommunes = Locations.communesDe(
+                                _villeCtrl.text.trim(),
+                              );
                             }
                           }),
                           child: Container(
@@ -7070,9 +7585,6 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
                   ),
                   SizedBox(height: 14),
 
-                  
-
-                 
                   if (_error != null) ...[
                     SizedBox(height: 14),
                     Container(
@@ -7139,7 +7651,7 @@ class _BecomeProviderSheetState extends State<_BecomeProviderSheet> {
                                 ),
                               )
                             : Text(
-                                'Soumettre ma demande',
+                                'Payer ton abonnement',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w700,

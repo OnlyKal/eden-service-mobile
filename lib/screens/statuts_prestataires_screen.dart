@@ -127,7 +127,9 @@ class _StatutsPrestatairesScreenState extends State<StatutsPrestatairesScreen> {
   void initState() {
     super.initState();
     _scrollCtrl.addListener(_onScroll);
-    StatutPrestataireService.instance.changes.addListener(_onExternalChangeDebounced);
+    StatutPrestataireService.instance.changes.addListener(
+      _onExternalChangeDebounced,
+    );
     StatutRealtimeService.instance.changes.addListener(_onRealtimeChange);
     StatutRealtimeService.instance.watchGlobal();
     StatutRealtimeService.instance.watchUser();
@@ -144,7 +146,9 @@ class _StatutsPrestatairesScreenState extends State<StatutsPrestatairesScreen> {
   void dispose() {
     _timer?.cancel();
     _scrollCtrl.dispose();
-    StatutPrestataireService.instance.changes.removeListener(_onExternalChangeDebounced);
+    StatutPrestataireService.instance.changes.removeListener(
+      _onExternalChangeDebounced,
+    );
     StatutRealtimeService.instance.changes.removeListener(_onRealtimeChange);
     StatutUploadService.instance.status.removeListener(_onUploadStatusChanged);
     _externalLoadDebounce?.cancel();
@@ -343,8 +347,7 @@ class _StatutsPrestatairesScreenState extends State<StatutsPrestatairesScreen> {
     try {
       final isProvider =
           AuthService.instance.currentUser?.estPrestataire == true;
-      final statuts =
-          await StatutPrestataireService.instance.getMonStatut();
+      final statuts = await StatutPrestataireService.instance.getMonStatut();
       String niveau = '';
       if (isProvider) {
         try {
@@ -698,8 +701,7 @@ class _VerticalStatutFeedState extends State<_VerticalStatutFeed> {
 
   void _onPageScroll() {
     // Charge plus de statuts quand on approche de la fin.
-    if (_pageCtrl.position.pixels >=
-        _pageCtrl.position.maxScrollExtent - 200) {
+    if (_pageCtrl.position.pixels >= _pageCtrl.position.maxScrollExtent - 200) {
       if (widget.hasMore && !widget.loadingMore) {
         widget.onLoadMore();
       }
@@ -1112,7 +1114,10 @@ class _VerticalStatutCardState extends State<_VerticalStatutCard> {
               child: GestureDetector(
                 onTapDown: (details) {
                   final width = MediaQuery.of(context).size.width;
-                  final value = (details.localPosition.dx / width).clamp(0.0, 1.0);
+                  final value = (details.localPosition.dx / width).clamp(
+                    0.0,
+                    1.0,
+                  );
                   _seekTo(value);
                 },
                 child: Container(
@@ -1122,9 +1127,7 @@ class _VerticalStatutCardState extends State<_VerticalStatutCard> {
                     alignment: Alignment.centerLeft,
                     child: FractionallySizedBox(
                       widthFactor: _progress,
-                      child: Container(
-                        color: Colors.white,
-                      ),
+                      child: Container(color: Colors.white),
                     ),
                   ),
                 ),
@@ -1662,7 +1665,8 @@ class _MyStatusCircleState extends State<_MyStatusCircle>
     final uploadStatus = StatutUploadService.instance.status.value;
     final uploadProgress = StatutUploadService.instance.progress.value;
     final uploadError = StatutUploadService.instance.error.value;
-    final isUploading = uploadStatus == StatutUploadStatus.preparing ||
+    final isUploading =
+        uploadStatus == StatutUploadStatus.preparing ||
         uploadStatus == StatutUploadStatus.uploading;
 
     // Anneau de progression affiché pendant l'upload.
@@ -1759,7 +1763,9 @@ class _MyStatusCircleState extends State<_MyStatusCircle>
         : 'Statut';
 
     return GestureDetector(
-      onTap: uploadError != null ? () => StatutUploadService.instance.retry() : widget.onTap,
+      onTap: uploadError != null
+          ? () => StatutUploadService.instance.retry()
+          : widget.onTap,
       child: SizedBox(
         width: 82,
         child: Column(
@@ -1773,7 +1779,9 @@ class _MyStatusCircleState extends State<_MyStatusCircle>
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: uploadError != null ? AppColors.error : AppColors.textPrimary,
+                color: uploadError != null
+                    ? AppColors.error
+                    : AppColors.textPrimary,
                 fontSize: 11.5,
                 fontWeight: FontWeight.w800,
                 height: 1.2,
@@ -1818,9 +1826,13 @@ class _MyStatusCircleState extends State<_MyStatusCircle>
                 subText!,
                 maxLines: 1,
                 style: TextStyle(
-                  color: uploadError != null ? AppColors.error : AppColors.textHint,
+                  color: uploadError != null
+                      ? AppColors.error
+                      : AppColors.textHint,
                   fontSize: 10.5,
-                  fontWeight: uploadError != null ? FontWeight.w700 : FontWeight.w400,
+                  fontWeight: uploadError != null
+                      ? FontWeight.w700
+                      : FontWeight.w400,
                   height: 1.2,
                 ),
               ),
@@ -2092,13 +2104,17 @@ class _AnimatedLikeButtonState extends State<_AnimatedLikeButton>
     // Phase 2 (30→100%) : rebond élastique qui revient à 1.0×
     _scale = TweenSequence<double>([
       TweenSequenceItem(
-        tween: Tween(begin: 1.0, end: 1.45)
-            .chain(CurveTween(curve: Curves.easeOutCubic)),
+        tween: Tween(
+          begin: 1.0,
+          end: 1.45,
+        ).chain(CurveTween(curve: Curves.easeOutCubic)),
         weight: 30,
       ),
       TweenSequenceItem(
-        tween: Tween(begin: 1.45, end: 1.0)
-            .chain(CurveTween(curve: Curves.easeOutBack)),
+        tween: Tween(
+          begin: 1.45,
+          end: 1.0,
+        ).chain(CurveTween(curve: Curves.easeOutBack)),
         weight: 70,
       ),
     ]).animate(_controller);
@@ -2106,13 +2122,17 @@ class _AnimatedLikeButtonState extends State<_AnimatedLikeButton>
     // Halo lumineux : apparaît pendant le scale-up puis s'estompe.
     _glow = TweenSequence<double>([
       TweenSequenceItem(
-        tween: Tween(begin: 0.0, end: 1.0)
-            .chain(CurveTween(curve: Curves.easeOut)),
+        tween: Tween(
+          begin: 0.0,
+          end: 1.0,
+        ).chain(CurveTween(curve: Curves.easeOut)),
         weight: 35,
       ),
       TweenSequenceItem(
-        tween: Tween(begin: 1.0, end: 0.0)
-            .chain(CurveTween(curve: Curves.easeIn)),
+        tween: Tween(
+          begin: 1.0,
+          end: 0.0,
+        ).chain(CurveTween(curve: Curves.easeIn)),
         weight: 65,
       ),
     ]).animate(_controller);
@@ -2124,12 +2144,10 @@ class _AnimatedLikeButtonState extends State<_AnimatedLikeButton>
     );
 
     // Pulsation douce et continue quand le cœur est aimé.
-    _pulse = Tween<double>(begin: 1.0, end: 1.08).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: Curves.easeInOut,
-      ),
-    );
+    _pulse = Tween<double>(
+      begin: 1.0,
+      end: 1.08,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -2158,15 +2176,17 @@ class _AnimatedLikeButtonState extends State<_AnimatedLikeButton>
   void _spawnParticles() {
     _activeParticles
       ..clear()
-      ..addAll(List.generate(6, (i) {
-        final angle = (i * 60 + 15) * math.pi / 180;
-        return _LikeParticle(
-          dx: 26 * 0.6 * math.cos(angle),
-          dy: -26 * 0.6 * math.sin(angle),
-          size: 3.0 + (i % 3) * 1.2,
-          delay: i * 25,
-        );
-      }));
+      ..addAll(
+        List.generate(6, (i) {
+          final angle = (i * 60 + 15) * math.pi / 180;
+          return _LikeParticle(
+            dx: 26 * 0.6 * math.cos(angle),
+            dy: -26 * 0.6 * math.sin(angle),
+            size: 3.0 + (i % 3) * 1.2,
+            delay: i * 25,
+          );
+        }),
+      );
   }
 
   void _handleTap() {
@@ -2241,17 +2261,12 @@ class _AnimatedLikeButtonState extends State<_AnimatedLikeButton>
                         ),
                       ),
                     // Cœur avec scale spectaculaire.
-                    Transform.scale(
-                      scale: scale,
-                      child: child,
-                    ),
+                    Transform.scale(scale: scale, child: child),
                   ],
                 );
               },
               child: Icon(
-                widget.liked
-                    ? CupertinoIcons.heart_fill
-                    : CupertinoIcons.heart,
+                widget.liked ? CupertinoIcons.heart_fill : CupertinoIcons.heart,
                 color: color,
                 size: 22,
                 shadows: widget.liked
@@ -2476,8 +2491,9 @@ class _StatutViewerScreenState extends State<StatutViewerScreen>
       setState(() {
         final currentIndex = _statuts.indexWhere((s) => s.id == update.id);
         if (currentIndex >= 0) {
-          _statuts[currentIndex] =
-              StatutRealtimeService.instance.applyTo(update);
+          _statuts[currentIndex] = StatutRealtimeService.instance.applyTo(
+            update,
+          );
         }
       });
     } catch (e) {
@@ -2505,8 +2521,7 @@ class _StatutViewerScreenState extends State<StatutViewerScreen>
     setState(() {
       final currentIndex = _statuts.indexWhere((s) => s.id == update.id);
       if (currentIndex >= 0) {
-        _statuts[currentIndex] =
-            StatutRealtimeService.instance.applyTo(update);
+        _statuts[currentIndex] = StatutRealtimeService.instance.applyTo(update);
       }
     });
   }
@@ -2636,10 +2651,10 @@ class _StatutViewerScreenState extends State<StatutViewerScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          user?.displayName ?? 'Prestataire',
+                        NameWithCertification(
+                          name: user?.displayName ?? 'Prestataire',
+                          estCertifie: prestataire?.isCertified ?? false,
                           maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 14,
@@ -2751,9 +2766,7 @@ class _StatutViewerScreenState extends State<StatutViewerScreen>
     final statutId = _current.id;
     if (statutId <= 0 || _viewedThisSession.contains(statutId)) return;
     _viewedThisSession.add(statutId);
-    final currentIndex = _statuts.indexWhere(
-      (statut) => statut.id == statutId,
-    );
+    final currentIndex = _statuts.indexWhere((statut) => statut.id == statutId);
     if (currentIndex >= 0 && !_statuts[currentIndex].vuParMoi) {
       final optimistic = _statuts[currentIndex].copyWith(
         vuParMoi: true,
@@ -3470,10 +3483,13 @@ class _StatutCommentsSheetState extends State<_StatutCommentsSheet> {
                   Row(
                     children: [
                       Flexible(
-                        child: Text(
-                          name,
+                        child: NameWithCertification(
+                          name: name,
+                          estCertifie:
+                              isAuthor &&
+                              (widget.statut.prestataireDetail?.isCertified ??
+                                  false),
                           maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: Color(0xFF777777),
                             fontSize: 13,

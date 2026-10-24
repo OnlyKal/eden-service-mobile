@@ -47,6 +47,10 @@ class AuthData {
   final String username;
   final String email;
   final bool estPrestataire;
+
+  /// Profil prestataire existant, même lorsque l'abonnement a expiré
+  /// (le serveur repasse alors `est_prestataire` à false).
+  final bool aProfilPrestataire;
   final String? photo;
   final String? firstName;
   final String? lastName;
@@ -58,11 +62,16 @@ class AuthData {
     required this.username,
     required this.email,
     required this.estPrestataire,
+    bool? aProfilPrestataire,
     this.photo,
     this.firstName,
     this.lastName,
     this.telephone,
-  });
+  }) : aProfilPrestataire = aProfilPrestataire ?? estPrestataire;
+
+  /// Vrai pour un prestataire, abonné ou non : il gère son profil et se
+  /// réabonne au lieu de refaire une demande de conversion.
+  bool get hasProviderProfile => estPrestataire || aProfilPrestataire;
 
   factory AuthData.fromJson(Map<String, dynamic> json) => AuthData(
     token: json['token'] as String,
@@ -70,6 +79,8 @@ class AuthData {
     username: json['username'] as String,
     email: json['email'] as String,
     estPrestataire: json['est_prestataire'] as bool,
+    // Absent des anciennes sessions sauvegardées : déduit d'est_prestataire.
+    aProfilPrestataire: json['a_profil_prestataire'] as bool?,
     // API returns 'photo_profil'; stored session uses 'photo'
     photo: (json['photo_profil'] ?? json['photo']) as String?,
     firstName: json['first_name'] as String?,
@@ -90,6 +101,7 @@ class AuthData {
     username: username,
     email: email ?? this.email,
     estPrestataire: estPrestataire,
+    aProfilPrestataire: aProfilPrestataire,
     photo: photo ?? this.photo,
     firstName: firstName ?? this.firstName,
     lastName: lastName ?? this.lastName,
@@ -97,18 +109,23 @@ class AuthData {
   );
 
   /// Creates a copy after becoming a provider (flips estPrestataire to true).
-  AuthData copyWithPrestataire({bool estPrestataire = true, String? photo}) =>
-      AuthData(
-        token: token,
-        userId: userId,
-        username: username,
-        email: email,
-        estPrestataire: estPrestataire,
-        photo: photo ?? this.photo,
-        firstName: firstName,
-        lastName: lastName,
-        telephone: telephone,
-      );
+  AuthData copyWithPrestataire({
+    bool estPrestataire = true,
+    bool? aProfilPrestataire,
+    String? photo,
+  }) => AuthData(
+    token: token,
+    userId: userId,
+    username: username,
+    email: email,
+    estPrestataire: estPrestataire,
+    aProfilPrestataire:
+        aProfilPrestataire ?? (estPrestataire || this.aProfilPrestataire),
+    photo: photo ?? this.photo,
+    firstName: firstName,
+    lastName: lastName,
+    telephone: telephone,
+  );
 
   String get displayName {
     final full = '${firstName ?? ''} ${lastName ?? ''}'.trim();

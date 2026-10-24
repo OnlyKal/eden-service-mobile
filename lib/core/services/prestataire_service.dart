@@ -7,6 +7,7 @@ import '../constants/api_constants.dart';
 import '../models/prestataire_models.dart';
 import 'app_refresh_service.dart';
 import 'auth_service.dart';
+import 'location_service.dart';
 
 class PrestataireService {
   PrestataireService._();
@@ -45,9 +46,14 @@ class PrestataireService {
     bool? disponible,
     String? ordering,
   }) async {
+    // Position du client, envoyée seulement pour que le serveur calcule la
+    // distance de chaque prestataire (elle n'est pas enregistrée).
+    final position = LocationService.instance.lastPosition;
     final params = <String, String>{
       'page': page.toString(),
       'page_size': pageSize.toString(),
+      if (position != null) 'lat': position.latitude.toStringAsFixed(6),
+      if (position != null) 'lng': position.longitude.toStringAsFixed(6),
       if (search != null && search.isNotEmpty) 'search': search,
       if (typeService != null && typeService.isNotEmpty)
         'type_service': typeService,

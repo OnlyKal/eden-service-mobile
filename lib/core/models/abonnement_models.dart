@@ -35,13 +35,11 @@ class AbonnementStatut {
   factory AbonnementStatut.fromJson(Map<String, dynamic> json) {
     final abonnementActifRaw = json['abonnement_actif'];
     final dernierAbonnementRaw = json['dernier_abonnement'];
-    final dateFinEssai = _parseDate(json['date_fin_essai']);
-    final joursEssaiRestants = _parseInt(json['jours_essai_restants']);
-    final estEnEssaiApi = _parseBool(json['est_en_essai']);
-    final essaiActifParDate =
-        dateFinEssai != null && dateFinEssai.isAfter(DateTime.now());
-    final estEnEssai =
-        estEnEssaiApi == true || joursEssaiRestants > 0 || essaiActifParDate;
+    // Les anciens champs d'essai peuvent encore être renvoyés par l'API,
+    // mais aucun accès prestataire ne doit en dépendre.
+    const dateFinEssai = null;
+    const joursEssaiRestants = 0;
+    const estEnEssai = false;
 
     return AbonnementStatut(
       prestataireId: _parseInt(json['prestataire_id']),
@@ -108,7 +106,7 @@ class AbonnementStatut {
       !estAbonnementCourantActif || abonnementDateExpiree;
 
   /// Compte totalement inactif : ni essai en cours, ni abonnement actif.
-  bool get estInactif => !estEnEssai && !estAbonnementCourantActif;
+  bool get estInactif => !estAbonnementCourantActif;
 }
 
 int _parseInt(dynamic value) => _parseIntOrNull(value) ?? 0;
@@ -175,33 +173,58 @@ class PaiementPlan {
   final int dureeMois;
   final String montantUsd;
   final String montantCdf;
+  final String montantInitialUsd;
+  final String montantInitialCdf;
+  final String montantReductionUsd;
+  final String montantReductionCdf;
+  final String reductionPourcentage;
 
   const PaiementPlan({
     required this.dureeMois,
     required this.montantUsd,
     required this.montantCdf,
+    this.montantInitialUsd = '0.00',
+    this.montantInitialCdf = '0',
+    this.montantReductionUsd = '0.00',
+    this.montantReductionCdf = '0',
+    this.reductionPourcentage = '0',
   });
 
   factory PaiementPlan.fromJson(Map<String, dynamic> json) => PaiementPlan(
     dureeMois: json['duree_mois'] as int? ?? 0,
     montantUsd: json['montant_usd']?.toString() ?? '0.00',
     montantCdf: json['montant_cdf']?.toString() ?? '0',
+    montantInitialUsd: json['montant_initial_usd']?.toString() ?? '0.00',
+    montantInitialCdf: json['montant_initial_cdf']?.toString() ?? '0',
+    montantReductionUsd: json['montant_reduction_usd']?.toString() ?? '0.00',
+    montantReductionCdf: json['montant_reduction_cdf']?.toString() ?? '0',
+    reductionPourcentage: json['reduction_pourcentage']?.toString() ?? '0',
   );
 
   String amountFor(String currency) =>
       currency == 'USD' ? montantUsd : montantCdf;
+
+  String initialAmountFor(String currency) =>
+      currency == 'USD' ? montantInitialUsd : montantInitialCdf;
+
+  String discountAmountFor(String currency) =>
+      currency == 'USD' ? montantReductionUsd : montantReductionCdf;
 }
 
 class PaiementConfig {
   final String prixMensuelUsd;
   final String tauxUsdCdf;
   final bool flexpayActif;
+  final String coutCertificationUsd;
+  final String coutCertificationCdf;
   final List<PaiementPlan> plans;
 
   const PaiementConfig({
     required this.prixMensuelUsd,
     required this.tauxUsdCdf,
     required this.flexpayActif,
+    this.coutCertificationUsd = '0.00',
+    this.coutCertificationCdf = '0',
     required this.plans,
   });
 
@@ -211,11 +234,52 @@ class PaiementConfig {
       prixMensuelUsd: data['prix_mensuel_usd']?.toString() ?? '0.00',
       tauxUsdCdf: data['taux_usd_cdf']?.toString() ?? '0.00',
       flexpayActif: data['flexpay_actif'] as bool? ?? false,
+      coutCertificationUsd:
+          data['cout_certification_usd']?.toString() ?? '0.00',
+      coutCertificationCdf: data['cout_certification_cdf']?.toString() ?? '0',
       plans: (data['plans'] as List<dynamic>? ?? const [])
           .map((e) => PaiementPlan.fromJson(e as Map<String, dynamic>))
           .toList(),
     );
   }
+}
+
+/// Libellé lisible d'un statut de paiement ou d'abonnement renvoyé par l'API
+/// (ex. « PENDING » → « En attente »).
+String statutLisible(String statut) {
+  switch (statut.trim().toLowerCase()) {
+    case 'success':
+    case 'complete':
+    case 'completed':
+    case 'reussi':
+      return 'Réussi';
+    case 'pending':
+    case 'en_attente':
+      return 'En attente';
+    case 'failed':
+    case 'echoue':
+      return 'Échoué';
+    case 'cancelled':
+    case 'canceled':
+    case 'annule':
+      return 'Annulé';
+    case 'refunded':
+    case 'rembourse':
+      return 'Remboursé';
+    case 'active':
+    case 'actif':
+      return 'Actif';
+    case 'expired':
+    case 'expire':
+      return 'Expiré';
+    case 'inactive':
+    case 'inactif':
+      return 'Inactif';
+    case '':
+      return '-';
+  }
+  final clean = statut.replaceAll('_', ' ').trim().toLowerCase();
+  return clean[0].toUpperCase() + clean.substring(1);
 }
 
 class PaiementTransaction {
@@ -257,6 +321,8 @@ class PaiementTransaction {
         datePaiement: json['date_paiement']?.toString(),
         dateConfirmation: json['date_confirmation']?.toString(),
       );
+
+  String get statutLabel => statutLisible(statut);
 
   PaiementTransaction copyWith({String? statut}) => PaiementTransaction(
     id: id,

@@ -15,6 +15,7 @@ import '../core/services/user_realtime_service.dart';
 import '../core/utils/user_friendly_error.dart';
 import '../theme/app_colors.dart';
 import '../widgets/gradient_background.dart';
+import '../widgets/certification_badge.dart';
 import 'conversation_screen.dart';
 import 'login_screen.dart';
 
@@ -1195,8 +1196,9 @@ class _SelectedProvider extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  prestataire.utilisateur.displayName,
+                NameWithCertification(
+                  name: prestataire.utilisateur.displayName,
+                  estCertifie: prestataire.isCertified,
                   style: TextStyle(
                     color: AppColors.textPrimary,
                     fontWeight: FontWeight.w800,

@@ -1032,7 +1032,7 @@ class _HeroSection extends StatelessWidget {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Icon(
-                                    Icons.circle_rounded,
+                                        Icons.circle_rounded,
                                         color: Colors.white,
                                         size: 11,
                                       ),
@@ -1048,7 +1048,7 @@ class _HeroSection extends StatelessWidget {
                                     ],
                                   ),
                                 ),
-                              ]else ...[
+                              ] else ...[
                                 SizedBox(width: 6),
                                 Container(
                                   padding: EdgeInsets.symmetric(
@@ -1074,40 +1074,6 @@ class _HeroSection extends StatelessWidget {
                                           fontSize: 10,
                                           fontWeight: FontWeight.w700,
                                           color: Colors.white,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              if (prestataire.isAvailable) ...[
-                                SizedBox(width: 6),
-                                Container(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: 7,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.success.withValues(
-                                      alpha: 0.18,
-                                    ),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.circle,
-                                        color: AppColors.success,
-                                        size: 8,
-                                      ),
-                                      SizedBox(width: 5),
-                                      Text(
-                                        'Disponible',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w700,
-                                          color: AppColors.success,
                                         ),
                                       ),
                                     ],
@@ -1213,7 +1179,6 @@ class _StatsRow extends StatelessWidget {
                 label: 'Avis',
               ),
               _StatDivider(),
-             
             ],
           ),
         ),

@@ -9,6 +9,7 @@ import '../core/services/notification_badge_service.dart';
 import '../core/services/prestataire_service.dart';
 import '../core/services/prestataire_realtime_service.dart';
 import '../core/services/auth_service.dart';
+import '../core/services/location_service.dart';
 import '../core/constants/api_constants.dart';
 import '../core/constants/locations.dart';
 import '../core/utils/user_friendly_error.dart';
@@ -21,6 +22,7 @@ import 'login_screen.dart';
 import 'notifications_screen.dart';
 import 'profile_screen.dart';
 import 'prestataire_detail_screen.dart';
+import 'prestataires_proches_screen.dart';
 import 'conversation_screen.dart';
 import 'demandes_client_screen.dart';
 import 'demandes_prestataire_screen.dart';
@@ -103,9 +105,70 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _loadServicesData();
     _loadFavoriteIds();
     _loadPrestataires(page: 1);
+    unawaited(_initDistances());
     unawaited(ConversationUnreadService.instance.syncAndWatchConversations());
     unawaited(NotificationBadgeService.instance.syncAndWatch());
     _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => unawaited(_checkAbonnementExpire()),
+    );
+  }
+
+  /// Une seule alerte par ouverture de l'application.
+  static bool _abonnementAlertShown = false;
+
+  /// Obtient la position du client sans retarder la liste : dès qu'elle est
+  /// connue, la première page est rechargée discrètement avec les distances.
+  /// Un prestataire envoie aussi la sienne pour être visible à distance.
+  Future<void> _initDistances() async {
+    final hadPosition = LocationService.instance.lastPosition != null;
+    final position = await LocationService.instance.currentPosition();
+    unawaited(LocationService.instance.syncProviderPosition());
+    if (position == null || hadPosition || !mounted) return;
+    if (_currentPage <= 1 && !_isLoadingInitial) {
+      unawaited(_loadPrestataires(page: 1, silent: true));
+    }
+  }
+
+  Future<void> _checkAbonnementExpire() async {
+    if (_abonnementAlertShown || !AuthService.instance.isLoggedIn) return;
+    try {
+      await AuthService.instance.refreshProviderStatus();
+      if (AuthService.instance.currentUser?.hasProviderProfile != true) return;
+      final abonnement = await AuthService.instance.getMonAbonnement();
+      if (!mounted || abonnement == null || !abonnement.estInactif) return;
+      if (_abonnementAlertShown) return;
+      _abonnementAlertShown = true;
+      final reabonner = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Abonnement expiré'),
+          content: const Text(
+            'Votre abonnement prestataire a expiré. Vos services ne sont plus '
+            'visibles par les clients. Réabonnez-vous pour réactiver votre profil.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Plus tard'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Se réabonner'),
+            ),
+          ],
+        ),
+      );
+      if (reabonner != true || !mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ProfileScreen(openSouscription: true),
+        ),
+      );
+      if (mounted) await _refreshAfterAuthReturn();
+    } catch (e) {
+      debugPrint('[checkAbonnementExpire] error: $e');
+    }
   }
 
   Future<void> _loadFavoriteIds({bool silent = false}) async {
@@ -417,6 +480,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     debugPrint(
       '[_loadPrestataires] page=$page search="${_searchController.text.trim()}" typeService=$_filterTypeService commune=$_filterCommune ville=$_filterVille estValide=$_filterEstValide ordering=$_filterOrdering',
     );
+    final sentPosition = LocationService.instance.lastPosition != null;
     try {
       final result = await PrestataireService.instance.getPrestataires(
         page: page,
@@ -466,6 +530,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       debugPrint(
         '[loadPrestataires] loaded=${result.results.length} total=${result.totalItems} hasNext=${result.hasNext}',
       );
+      // La position est arrivée pendant ce chargement : on récupère les distances.
+      if (page == 1 &&
+          !sentPosition &&
+          LocationService.instance.lastPosition != null) {
+        unawaited(_loadPrestataires(page: 1, silent: true));
+      }
     } catch (e) {
       debugPrint('[loadPrestataires] error: $e');
       if (!mounted) return;
@@ -843,6 +913,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ),
                           ),
                         ),
+                ),
+                // Prestataires autour de moi (cercles de distance)
+                GestureDetector(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => PrestatairesProchesScreen(),
+                    ),
+                  ),
+                  child: Container(
+                    margin: EdgeInsets.fromLTRB(0, 7, 0, 7),
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySurface,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.radar_rounded,
+                      color: AppColors.primary,
+                      size: 17,
+                    ),
+                  ),
                 ),
                 // Filter icon with active-filter badge
                 GestureDetector(
@@ -1361,7 +1452,9 @@ class _StatusStoryButton extends StatelessWidget {
                       width: 11,
                       height: 11,
                       decoration: BoxDecoration(
-                        color: hasUnread ? Color(0xFFFF8A00) : AppColors.primary,
+                        color: hasUnread
+                            ? Color(0xFFFF8A00)
+                            : AppColors.primary,
                         shape: BoxShape.circle,
                         border: Border.all(color: Colors.white, width: 1.5),
                       ),
@@ -1626,23 +1719,48 @@ class _ProviderListCard extends StatelessWidget {
                     color: AppColors.primary,
                   ),
                 ),
-                if (prestataire.niveau.isNotEmpty) ...[
+                if (prestataire.niveau.isNotEmpty ||
+                    prestataire.distanceKm != null) ...[
                   SizedBox(height: 6),
                   Row(
                     children: [
-                      _LevelBadge(
-                        niveau: prestataire.niveau,
-                        score: prestataire.scoreNiveau,
-                      ),
-                      SizedBox(width: 8),
-                      Text(
-                        '${prestataire.missionsReussies} missions',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: AppColors.textHint,
-                          fontWeight: FontWeight.w600,
+                      if (prestataire.niveau.isNotEmpty) ...[
+                        _LevelBadge(
+                          niveau: prestataire.niveau,
+                          score: prestataire.scoreNiveau,
                         ),
-                      ),
+                        SizedBox(width: 8),
+                      ],
+                      // Distance quand les deux positions sont connues,
+                      // sinon le nombre de missions comme avant.
+                      if (prestataire.distanceKm != null) ...[
+                        Icon(
+                          Icons.near_me_rounded,
+                          size: 12,
+                          color: AppColors.textHint,
+                        ),
+                        SizedBox(width: 3),
+                        Flexible(
+                          child: Text(
+                            formatDistance(prestataire.distanceKm!),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: AppColors.textHint,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ] else
+                        Text(
+                          '${prestataire.missionsReussies} missions',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textHint,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                     ],
                   ),
                 ],
@@ -3232,7 +3350,8 @@ class _VillePickerSheetState extends State<_VillePickerSheet> {
                         (v) => _VilleTile(
                           nom: v.nom,
                           communes: v.communes,
-                          selected: v.nom.toLowerCase() ==
+                          selected:
+                              v.nom.toLowerCase() ==
                               (widget.initial ?? '').toLowerCase(),
                           onTap: () => Navigator.pop(context, v.nom),
                         ),

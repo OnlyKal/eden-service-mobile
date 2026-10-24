@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -57,6 +58,7 @@ class AuthService {
         'username': data.username,
         'email': data.email,
         'est_prestataire': data.estPrestataire,
+        'a_profil_prestataire': data.aProfilPrestataire,
         'photo': data.photo,
         'first_name': data.firstName,
         'last_name': data.lastName,
@@ -86,10 +88,10 @@ class AuthService {
           refreshedFirebaseRegistrationToken?.trim() ??
           await FirebaseMessaging.instance.getToken();
 
-          print('================================');
-          print('FCM TOKEN ACTUEL');
-          print(fcmToken);
-          print('================================');
+      print('================================');
+      print('FCM TOKEN ACTUEL');
+      print(fcmToken);
+      print('================================');
       if (fcmToken == null || fcmToken.trim().isEmpty) {
         return;
       }
@@ -143,9 +145,7 @@ class AuthService {
 
       if (kDebugMode &&
           (response.statusCode < 200 || response.statusCode >= 300)) {
-        debugPrint(
-          'Device type registration failed: ${response.statusCode}',
-        );
+        debugPrint('Device type registration failed: ${response.statusCode}');
       }
     } catch (error) {
       if (kDebugMode) {
@@ -178,6 +178,48 @@ class AuthService {
     final result = LoginResponse.fromJson(json);
     if (result.success && result.data != null) await _persist(result.data!);
     return result;
+  }
+
+  // ── Statut prestataire ──────────────────────────────────────────────────
+  /// Resynchronise le statut prestataire avec le serveur : il change sans
+  /// action de l'utilisateur (expiration, réabonnement).
+  /// Retourne true si la session locale a été mise à jour.
+  Future<bool> refreshProviderStatus() async {
+    final user = _currentUser;
+    if (user == null) return false;
+    try {
+      final response = await http.get(
+        Uri.parse(ApiConstants.updateMe),
+        headers: {'Authorization': user.token, 'Cache-Control': 'no-cache'},
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return false;
+      }
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final d = json['data'];
+      if (json['success'] != true || d is! Map<String, dynamic>) return false;
+      final estPrestataire =
+          d['est_prestataire'] as bool? ?? user.estPrestataire;
+      final aProfil =
+          d['a_profil_prestataire'] as bool? ??
+          (d['prestataire'] != null || estPrestataire);
+      // La session a pu changer pendant la requête (déconnexion, autre compte).
+      if (!identical(_currentUser, user)) return false;
+      if (estPrestataire == user.estPrestataire &&
+          aProfil == user.aProfilPrestataire) {
+        return false;
+      }
+      await _persist(
+        user.copyWithPrestataire(
+          estPrestataire: estPrestataire,
+          aProfilPrestataire: aProfil,
+        ),
+      );
+      return true;
+    } catch (error) {
+      if (kDebugMode) debugPrint('Provider status refresh error: $error');
+      return false;
+    }
   }
 
   // ── Update profile ────────────────────────────────────────────────────────
@@ -257,12 +299,7 @@ class AuthService {
 
   // ── Become provider ─────────────────────────────────────────────────────
   Future<Map<String, dynamic>> becomeProvider({
-    required String typeService,
-    List<int>? serviceIds,
-    required String adresseRue,
-    required String commune,
-    required String ville,
-    required String presentation,
+    required int transactionId,
   }) async {
     final response = await http.post(
       Uri.parse(ApiConstants.becomeProvider),
@@ -270,14 +307,7 @@ class AuthService {
         'Content-Type': 'application/json',
         'Authorization': _currentUser!.token,
       },
-      body: jsonEncode({
-        'type_service': typeService,
-        if (serviceIds != null) 'service_ids': serviceIds,
-        'adresse_rue': adresseRue,
-        'commune': commune,
-        'ville': ville,
-        'presentation': presentation,
-      }),
+      body: jsonEncode({'transaction_id': transactionId}),
     );
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     if (json['success'] == true && json['data'] != null) {
@@ -285,6 +315,7 @@ class AuthService {
       await _persist(
         _currentUser!.copyWithPrestataire(
           estPrestataire: d['est_prestataire'] as bool? ?? true,
+          aProfilPrestataire: d['a_profil_prestataire'] as bool? ?? true,
           photo: d['photo_profil'] as String?,
         ),
       );
@@ -341,23 +372,36 @@ class AuthService {
     return PaiementConfig.fromJson(json);
   }
 
+  /// Délai maximal d'attente de la création d'un paiement : au-delà, l'app
+  /// cherche la transaction éventuellement créée au lieu d'attendre sans fin.
+  static const paiementCreateTimeout = Duration(seconds: 45);
+
   Future<PaiementTransaction> createPaiement({
     required String phone,
     required String currency,
     required int dureeMois,
+    Map<String, dynamic>? conversion,
+    bool retryPending = false,
+    int? retryTransactionId,
   }) async {
-    final response = await http.post(
-      Uri.parse(ApiConstants.paiementCreate),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _currentUser!.token,
-      },
-      body: jsonEncode({
-        'phone': phone,
-        'currency': currency,
-        'duree_mois': dureeMois,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse(ApiConstants.paiementCreate),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': _currentUser!.token,
+          },
+          body: jsonEncode({
+            'phone': phone,
+            'currency': currency,
+            'duree_mois': dureeMois,
+            if (conversion != null) 'conversion': conversion,
+            if (retryPending) 'retry_pending': true,
+            if (retryTransactionId != null)
+              'retry_transaction_id': retryTransactionId,
+          }),
+        )
+        .timeout(paiementCreateTimeout);
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final error = json['error'] as Map<String, dynamic>?;
@@ -371,17 +415,33 @@ class AuthService {
     );
   }
 
+  Future<Map<String, dynamic>?> getProviderConversion() async {
+    final response = await http.get(
+      Uri.parse(ApiConstants.providerConversion),
+      headers: {'Authorization': _currentUser!.token},
+    );
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
+        json['success'] != true) {
+      throw Exception(json['message'] ?? 'État de conversion indisponible');
+    }
+    return json['data'] as Map<String, dynamic>?;
+  }
+
   Future<PaiementTransaction> getPaiementStatus(int transactionId) async {
     final uri = Uri.parse(ApiConstants.paiementStatus(transactionId)).replace(
       queryParameters: {'_': DateTime.now().millisecondsSinceEpoch.toString()},
     );
-    final response = await http.get(
-      uri,
-      headers: {'Authorization': _currentUser!.token},
-    );
+    final response = await http
+        .get(uri, headers: {'Authorization': _currentUser!.token})
+        .timeout(const Duration(seconds: 25));
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(json['message'] ?? 'Statut paiement indisponible');
+      final error = json['error'] as Map<String, dynamic>?;
+      throw Exception(
+        error?['message'] ?? json['message'] ?? 'Statut paiement indisponible',
+      );
     }
     final data = json['data'] as Map<String, dynamic>? ?? const {};
     final rawTransaction = data['transaction'] ?? data;
@@ -392,6 +452,38 @@ class AuthService {
       _notifyAbonnementChanged();
     }
     return transaction;
+  }
+
+  /// Retrouve un paiement d'abonnement en attente créé récemment avec ces
+  /// paramètres : sert à reprendre le suivi quand la réponse de création ne
+  /// parvient pas à l'app (réseau lent, coupure).
+  Future<PaiementTransaction?> findRecentPendingAbonnementPayment({
+    required int dureeMois,
+    required String currency,
+    Duration within = const Duration(minutes: 10),
+  }) async {
+    final response = await http
+        .get(
+          Uri.parse(ApiConstants.paiementHistory),
+          headers: {'Authorization': _currentUser!.token},
+        )
+        .timeout(const Duration(seconds: 20));
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = json['data'];
+    if (json['success'] != true || data is! List<dynamic>) return null;
+    final limite = DateTime.now().subtract(within);
+    for (final item in data.whereType<Map<String, dynamic>>()) {
+      final date = DateTime.tryParse('${item['date_paiement']}');
+      if (item['type_paiement'] == 'abonnement' &&
+          '${item['statut']}'.toUpperCase() == 'PENDING' &&
+          int.tryParse('${item['duree_mois']}') == dureeMois &&
+          '${item['devise']}'.toUpperCase() == currency.toUpperCase() &&
+          date != null &&
+          date.toLocal().isAfter(limite)) {
+        return PaiementTransaction.fromJson(item);
+      }
+    }
+    return null;
   }
 
   Future<List<PaiementTransaction>> getPaiementHistory() async {

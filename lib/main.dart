@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'package:flutter/material.dart';
@@ -127,10 +128,26 @@ void _handleNotificationInteraction(RemoteMessage message) {
 // Platform  Firebase App Id
 // android   1:434434525946:android:cb4c310f99538c4a69d743
 // ios       1:434434525946:ios:4d4fa420af03dfe069d743
+/// Remonte les plantages de production dans Firebase Crashlytics.
+/// Désactivé en debug pour ne pas polluer le tableau de bord.
+Future<void> _initializeCrashlytics() async {
+  if (kIsWeb) return;
+  final crashlytics = FirebaseCrashlytics.instance;
+  await crashlytics.setCrashlyticsCollectionEnabled(!kDebugMode);
+  // Erreurs du framework Flutter (build, layout, rendu…).
+  FlutterError.onError = crashlytics.recordFlutterFatalError;
+  // Erreurs asynchrones non interceptées (Future, Stream…).
+  PlatformDispatcher.instance.onError = (error, stack) {
+    crashlytics.recordError(error, stack, fatal: true);
+    return true;
+  };
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Restore saved session before the app renders
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await _initializeCrashlytics();
 
   // TODO: Request permission
   final messaging = FirebaseMessaging.instance;
@@ -185,6 +202,13 @@ void main() async {
   }
 
   await AuthService.instance.loadSession();
+  final sessionUser = AuthService.instance.currentUser;
+  if (sessionUser != null && !kIsWeb) {
+    // Identifie l'utilisateur concerné dans les rapports de plantage.
+    unawaited(
+      FirebaseCrashlytics.instance.setUserIdentifier('${sessionUser.userId}'),
+    );
+  }
   await VersionCheckService.instance.loadInstalledVersion();
   SystemChrome.setSystemUIOverlayStyle(
     SystemUiOverlayStyle(

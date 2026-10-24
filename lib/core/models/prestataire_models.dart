@@ -125,6 +125,10 @@ class Prestataire {
   final int tauxRespectEngagements;
   final String? dateDernierCalculNiveau;
 
+  /// Distance entre le client et le prestataire, calculée par le serveur
+  /// (null si l'une des deux positions est inconnue).
+  final double? distanceKm;
+
   const Prestataire({
     required this.id,
     required this.utilisateur,
@@ -147,6 +151,7 @@ class Prestataire {
     required this.tauxSatisfaction,
     required this.tauxRespectEngagements,
     this.dateDernierCalculNiveau,
+    this.distanceKm,
   });
 
   factory Prestataire.fromJson(Map<String, dynamic> json) => Prestataire(
@@ -177,6 +182,7 @@ class Prestataire {
     tauxSatisfaction: _parseInt(json['taux_satisfaction']),
     tauxRespectEngagements: _parseInt(json['taux_respect_engagements']),
     dateDernierCalculNiveau: json['date_dernier_calcul_niveau'] as String?,
+    distanceKm: _parseDouble(json['distance_km']),
   );
 
   /// La certification est conservée telle quelle : elle n'est gérée que par
@@ -204,6 +210,7 @@ class Prestataire {
       tauxSatisfaction: tauxSatisfaction,
       tauxRespectEngagements: tauxRespectEngagements,
       dateDernierCalculNiveau: dateDernierCalculNiveau,
+      distanceKm: distanceKm,
     );
   }
 
